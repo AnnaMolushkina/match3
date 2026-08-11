@@ -15,15 +15,19 @@ namespace m3 {
 // не нужно знать его размер или содержимое (можно не включать заголовочный файл)
 class Board;
 class TextureCache;
+class Text;
 struct Cell;
 
 // Отрисовка: Renderer ничего не знает про правила игры, ему передают готовое поле.
 class Renderer {
 public:
-    Renderer(SDL_Renderer* sdl, TextureCache& textures, const Level& level);
+    Renderer(SDL_Renderer* sdl, TextureCache& textures, Text& text, const Level& level);
 
     void clear();
     void present();
+
+    // Панель слева от поля: фишка целевого цвета и сколько её ещё собрать.
+    void drawGoal(int remaining);
     // views — смещение и прозрачность фишек, снимок анимации на этот кадр.
     // selected — клетка под подсветкой; nullptr, если игрок ничего не выбрал.
     void drawBoard(const Board& board, const std::vector<ChipView>& views,
@@ -36,6 +40,7 @@ private:
 
     SDL_Renderer* sdl_;
     TextureCache* textures_;
+    Text*         text_;
     const Level*  level_; // рендер не меняет настройки уровня, поэтому ссылка на const
 };
 

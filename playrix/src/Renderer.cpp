@@ -1,14 +1,16 @@
 #include "Renderer.h"
 
 #include "Board.h"
+#include "Text.h"
 #include "TextureCache.h"
 
 #include <cmath>
+#include <string>
 
 namespace m3 {
 
-Renderer::Renderer(SDL_Renderer* sdl, TextureCache& textures, const Level& level)
-    : sdl_(sdl), textures_(&textures), level_(&level) {} //берем адрес ссылок, чтобы сохранить их как указатели в полях класса
+Renderer::Renderer(SDL_Renderer* sdl, TextureCache& textures, Text& text, const Level& level)
+    : sdl_(sdl), textures_(&textures), text_(&text), level_(&level) {} //берем адрес ссылок, чтобы сохранить их как указатели в полях класса
 
 // Рисуем прямоугольник заданного цвета и прозрачности.
 void Renderer::fill(int x, int y, int w, int h, cfg::Rgb color, Uint8 alpha) {
@@ -25,10 +27,11 @@ void Renderer::frame(int x, int y, int w, int h, int t, cfg::Rgb color) {
     fill(x + w - t, y + t, t, h - 2 * t, color);  // справа
 }
 
-// Очистить экран перед отрисовкой нового кадра.
+// Очистить экран перед отрисовкой нового кадра. При kBgAlpha == 0 канвас
+// остаётся прозрачным, и за игровым полем виден фон HTML-страницы.
 void Renderer::clear() {
     SDL_SetRenderDrawBlendMode(sdl_, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(sdl_, cfg::kBgColor.r, cfg::kBgColor.g, cfg::kBgColor.b, 255);
+    SDL_SetRenderDrawColor(sdl_, cfg::kBgColor.r, cfg::kBgColor.g, cfg::kBgColor.b, cfg::kBgAlpha);
     SDL_RenderClear(sdl_);
 }
 
@@ -89,7 +92,8 @@ void Renderer::drawBoard(const Board& board, const std::vector<ChipView>& views,
             SDL_SetTextureAlphaMod(texture, static_cast<Uint8>(alpha));
 
             // dst — прямоугольник на экране, куда SDL_RenderCopy нарисует текстуру
-            SDL_Rect dst{level_->boardX() + c * level_->tile,
+            SDL_Rect dst{level_->boardX() + c * level_->tile +
+                             static_cast<int>(std::lround(view.offsetX)),
                          level_->boardY() + r * level_->tile +
                              static_cast<int>(std::lround(view.offsetY)),
                          level_->tile, level_->tile};
@@ -98,6 +102,34 @@ void Renderer::drawBoard(const Board& board, const std::vector<ChipView>& views,
     }
 
     SDL_RenderSetClipRect(sdl_, nullptr);
+}
+
+// Цель уровня: фишка нужного цвета по центру полосы слева от поля, а поверх
+// неё в правом нижнем углу — сколько таких фишек ещё осталось собрать.
+void Renderer::drawGoal(int remaining) {
+    const int size = cfg::kGoalIconSize;
+    const int x    = (level_->boardX() - size) / 2;   // центр полосы слева от поля
+    const int y    = (level_->windowH() - size) / 2;  // и по высоте окна
+
+    if (SDL_Texture* icon = textures_->chip(level_->sprite(level_->goalColor))) {
+        // Прозрачность на текстуре общая, а фишка этого же цвета могла
+        // растворяться на поле — возвращаем её в полную видимость.
+        SDL_SetTextureAlphaMod(icon, 255);
+        SDL_Rect dst{x, y, size, size};
+        SDL_RenderCopy(sdl_, icon, nullptr, &dst);
+    }
+
+    const std::string label = std::to_string(remaining);
+    int               w     = 0;
+    int               h     = 0;
+    text_->measure(label, w, h);
+
+    // Правый нижний угол картинки: правый край строки совпадает с правым
+    // краем фишки, нижний — с нижним.
+    const int tx = x + size - w;
+    const int ty = y + size - h;
+    text_->draw(label, tx + 2, ty + 2, cfg::kTextShadow);  // тень — чтобы число читалось на любом цвете
+    text_->draw(label, tx, ty, cfg::kTextColor);
 }
 
 }  // namespace m3

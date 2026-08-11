@@ -31,6 +31,9 @@ public:
     // Смещение и прозрачность каждой фишки; индексы те же, что у Board.
     const std::vector<ChipView>& views() const { return views_; }
 
+    // Сколько фишек целевого цвета осталось собрать. 0 — цель выполнена.
+    int remaining() const;
+
     // Снять выбор и оборвать анимации — нужно после перегенерации поля.
     void reset();
 
@@ -38,9 +41,10 @@ private:
     // Фазы поля. Falling наступает строго после Removing: по условию опадение
     // не должно начинаться, пока эффект удаления не отыграл до конца.
     enum class Phase {
-        Idle,      // ждём хода игрока
-        Removing,  // матч уходит в прозрачность
-        Falling,   // фишки опадают, сверху прилетают новые
+        Idle,       // ждём хода игрока
+        Removing,   // матч уходит в прозрачность
+        Falling,    // фишки опадают, сверху прилетают новые
+        Shuffling,  // ходов не осталось, фишки разлетаются по новым клеткам
     };
 
     bool        cellAt(int x, int y, Cell& out) const;
@@ -51,6 +55,9 @@ private:
     void finishRemoving();
     void updateRemoving(float dt);
     void updateFalling(float dt);
+    void beginShuffle();
+    void updateShuffling(float dt);
+    void restartLevel();
 
     Board*       board_;
     const Level* level_;  // игра не меняет настройки уровня
@@ -61,6 +68,12 @@ private:
     float                 timer_ = 0.0f;  // сколько секунд идёт текущая фаза
     std::vector<Cell>     matches_;       // клетки, которые сейчас растворяются
     std::vector<ChipView> views_;
+
+    // Откуда прилетела фишка, лежащая теперь в клетке i, — заполняется на
+    // время перетасовки, чтобы знать, какой путь ей осталось пролететь.
+    std::vector<Cell> shuffleFrom_;
+
+    int collected_ = 0;  // собрано фишек целевого цвета
 };
 
 }  // namespace m3

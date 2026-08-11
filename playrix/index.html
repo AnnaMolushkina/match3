@@ -4,16 +4,30 @@
     <meta charset="utf-8">
     <title>Match3</title>
     <style>
-        body {
+        html, body {
             margin: 0;
-            background: #1e1e28;
+            height: 100%;
+            overflow: hidden;
+        }
+        body {
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
+
+            /* Фон всей страницы. Картинка лежит рядом в assets/ и отдаётся
+               сервером как обычный файл (в index.data — её отдельная копия
+               для C++). Цвет виден, только пока картинка не загрузилась. */
+            background-color: #1e1e28;
+            background-image: url('assets/bg.png');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
         }
         canvas {
-            border: 1px solid #444;
+            /* Канвас прозрачен (см. cfg::kBgAlpha), поэтому за игровым полем
+               виден фон страницы. Рамки нет — она обвела бы пустоту вокруг поля. */
+            background: transparent;
+            display: block;
         }
     </style>
 </head>

@@ -1,5 +1,6 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
+#include <SDL2/SDL_ttf.h>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -13,6 +14,7 @@
 #include "src/Game.h"
 #include "src/Level.h"
 #include "src/Renderer.h"
+#include "src/Text.h"
 #include "src/TextureCache.h"
 
 namespace {
@@ -22,6 +24,7 @@ struct App {
     SDL_Renderer*    sdl      = nullptr;
     m3::Level        level;
     m3::TextureCache textures;
+    m3::Text         text;
     m3::Board*       board    = nullptr;
     m3::Game*        game     = nullptr;
     m3::Renderer*    renderer = nullptr;
@@ -71,6 +74,7 @@ void frame() {
 
     g_app.renderer->clear();
     g_app.renderer->drawBoard(*g_app.board, g_app.game->views(), g_app.game->selected());
+    g_app.renderer->drawGoal(g_app.game->remaining());
     g_app.renderer->present();
 }
 
@@ -89,6 +93,15 @@ bool init() {
         SDL_Log("IMG_Init: %s", IMG_GetError());
         return false;
     }
+    if (TTF_Init() != 0) {
+        SDL_Log("TTF_Init: %s", TTF_GetError());
+        return false;
+    }
+
+    // Альфа-канал у канваса: без него браузер рисует канвас непрозрачным
+    // прямоугольником, и фон страницы за пределами поля не был бы виден.
+    // Порядок важен — SDL_Init сбрасывает атрибуты GL, окно их уже читает.
+    SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
 
     // Размер окна задаётся уровнем: правка rows/cols/tile в level.cfg
     // сразу меняет и поле, и окно.
@@ -112,13 +125,18 @@ bool init() {
         return false;
     }
 
+    if (!g_app.text.load(g_app.sdl, cfg::kFontFile, cfg::kGoalFontSize, error)) {
+        SDL_Log("%s", error.c_str());
+        return false;
+    }
+
     const uint32_t seed = static_cast<uint32_t>(SDL_GetPerformanceCounter());
     g_app.board = new m3::Board(g_app.level.rows, g_app.level.cols, g_app.level.colors, seed);
     g_app.board->reset();
     reportMatches(*g_app.board);
 
     g_app.game     = new m3::Game(*g_app.board, g_app.level);
-    g_app.renderer = new m3::Renderer(g_app.sdl, g_app.textures, g_app.level);
+    g_app.renderer = new m3::Renderer(g_app.sdl, g_app.textures, g_app.text, g_app.level);
 
     // Отсечка времени берётся до первого кадра, иначе первый dt был бы равен
     // всей длительности загрузки.

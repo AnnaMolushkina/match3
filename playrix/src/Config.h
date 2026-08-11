@@ -37,6 +37,10 @@ constexpr int kPanelW = 180;  // ширина левой панели с цел�
 // Толщина рамки, которой обводится выбранная фишка.
 constexpr int kSelectFrame = 3;
 
+// Панель цели: размер фишки-образца и кегль числа поверх неё.
+constexpr int kGoalIconSize = 96;
+constexpr int kGoalFontSize = 30;
+
 // ---- тайминги, секунды --------------------------------------------------
 constexpr float kSwapTime    = 0.15f;
 constexpr float kRemoveTime  = 0.24f;
@@ -59,11 +63,16 @@ struct Rgb {
 };
 
 constexpr Rgb kBgColor        = {30, 30, 40};
+// Прозрачность фона канваса. 0 — за полем виден фон страницы (bg.png из
+// index.html); поставить 255, чтобы канвас снова заливался kBgColor.
+constexpr uint8_t kBgAlpha    = 0;
 constexpr Rgb kBoardColor     = {44, 44, 60};
 constexpr Rgb kCellColorEven  = {54, 54, 72};
 constexpr Rgb kCellColorOdd   = {48, 48, 65};
 constexpr Rgb kSelectColor    = {255, 255, 255};
 constexpr Rgb kTextColor      = {235, 235, 245};
+// Тень под числом: светлый текст поверх фишки любого цвета остаётся читаемым.
+constexpr Rgb kTextShadow     = {24, 24, 32};
 //constexpr Rgb kProgressBg     = {60, 60, 78};
 constexpr Rgb kProgressFill   = {112, 210, 130};
 

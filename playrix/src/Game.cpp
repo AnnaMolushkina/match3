@@ -11,12 +11,18 @@ namespace m3 {
 Game::Game(Board& board, const Level& level)
     : board_(&board), level_(&level), views_(static_cast<size_t>(board.cellCount())) {}
 
+int Game::remaining() const {
+    const int left = level_->goalAmount - collected_;
+    return left > 0 ? left : 0;
+}
+
 // Поле пересобрали заново — все фишки на местах и полностью видимы.
 void Game::reset() {
     hasSelection_ = false;
     phase_        = Phase::Idle;
     timer_        = 0.0f;
     matches_.clear();
+    shuffleFrom_.clear();
     views_.assign(views_.size(), ChipView{});
 }
 
@@ -86,6 +92,8 @@ void Game::update(float dt) {
         updateRemoving(dt);
     } else if (phase_ == Phase::Falling) {
         updateFalling(dt);
+    } else if (phase_ == Phase::Shuffling) {
+        updateShuffling(dt);
     }
 }
 
@@ -94,7 +102,20 @@ void Game::update(float dt) {
 void Game::beginRemoving() {
     matches_ = board_->findMatches();
     if (matches_.empty()) {
-        phase_ = Phase::Idle;  // поле успокоилось, ждём следующий ход
+        // Поле успокоилось — только теперь можно смотреть на цель. Перезапускать
+        // уровень посреди каскада нельзя: фишки ещё летят, и игрок не увидел бы,
+        // чем закончился его ход.
+        if (remaining() == 0) {
+            restartLevel();
+            return;
+        }
+        // Поле могло встать в позицию, где ни один обмен не собирает тройку.
+        // Играть дальше нечем, поэтому фишки перетасовываются.
+        if (!board_->hasValidMove()) {
+            beginShuffle();
+            return;
+        }
+        phase_ = Phase::Idle;  // ждём следующий ход
         return;
     }
     phase_ = Phase::Removing;
@@ -114,6 +135,12 @@ void Game::updateRemoving(float dt) {
 }
 
 void Game::finishRemoving() {
+    // Считаем цель до clear: цвета фишек ещё на поле. В зачёт идут и каскадные
+    // матчи — они разбираются этим же кодом.
+    for (const Cell& cell : matches_) {
+        if (board_->at(cell.r, cell.c) == level_->goalColor) ++collected_;
+    }
+
     board_->clear(matches_);
     const std::vector<FallMove> moves = board_->applyGravity();
     matches_.clear();
@@ -153,6 +180,59 @@ void Game::updateFalling(float dt) {
     // Поле остановилось — ищем каскад. Автоматч разбирается тем же кодом,
     // что и матч, собранный руками.
     if (!moving) beginRemoving();
+}
+
+// Ходов не осталось. Board тасует уже лежащие фишки и возвращает перестановку:
+// по ней видно, из какой клетки каждая приехала, поэтому фишки не появляются на
+// новых местах мгновенно, а перелетают туда.
+void Game::beginShuffle() {
+    const std::vector<int> perm = board_->shuffle();
+
+    views_.assign(views_.size(), ChipView{});
+    shuffleFrom_.resize(perm.size());
+    for (size_t i = 0; i < perm.size(); ++i) {
+        // perm[i] — индекс клетки, откуда взялась фишка, лежащая теперь в i.
+        shuffleFrom_[i] = {perm[i] / level_->cols, perm[i] % level_->cols};
+    }
+
+    hasSelection_ = false;  // выбранной фишки на этом месте уже нет
+    phase_        = Phase::Shuffling;
+    timer_        = 0.0f;
+}
+
+void Game::updateShuffling(float dt) {
+    timer_ += dt;
+    float progress = timer_ / cfg::kShuffleTime;
+    if (progress > 1.0f) progress = 1.0f;
+
+    // Сглаживание: доля пути, которую фишке ещё осталось пролететь. Летят все
+    // одновременно и одно и то же время — в отличие от падения, тут нет
+    // физики, есть просто перестановка, и разнобой прилёта был бы лишним.
+    const float left = 1.0f - progress * progress * (3.0f - 2.0f * progress);
+
+    for (size_t i = 0; i < views_.size(); ++i) {
+        const int index = static_cast<int>(i);
+        const int dc    = shuffleFrom_[i].c - index % level_->cols;
+        const int dr    = shuffleFrom_[i].r - index / level_->cols;
+        views_[i].offsetX = static_cast<float>(dc * level_->tile) * left;
+        views_[i].offsetY = static_cast<float>(dr * level_->tile) * left;
+    }
+
+    // После перетасовки на поле заведомо нет матчей и есть хотя бы один ход,
+    // так что искать каскад не нужно — сразу ждём игрока.
+    if (progress >= 1.0f) {
+        views_.assign(views_.size(), ChipView{});
+        shuffleFrom_.clear();
+        phase_ = Phase::Idle;
+    }
+}
+
+// Цель выполнена: собираем поле заново и обнуляем счётчик — уровень уходит
+// на новый круг, перезагружать страницу не нужно.
+void Game::restartLevel() {
+    board_->reset();
+    collected_ = 0;
+    reset();
 }
 
 }  // namespace m3
