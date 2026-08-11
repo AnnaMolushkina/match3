@@ -7,17 +7,18 @@
 
 namespace m3 {
 
-struct Level;
-
 // Владеет текстурами фишек и фоном.
+// Грузит всю палитру cfg::kChipSprites один раз за запуск
 class TextureCache {
 public:
     ~TextureCache();
 
-    bool load(SDL_Renderer* renderer, const Level& level, std::string& error);
+    bool load(SDL_Renderer* renderer, std::string& error);
     void destroy();
 
-    SDL_Texture* chip(int color) const;
+    // Аргумент — номер спрайта в палитре
+    // перевод одного в другое делает Level::sprite().
+    SDL_Texture* chip(int sprite) const;
     SDL_Texture* background() const { return background_; }
 
 private:

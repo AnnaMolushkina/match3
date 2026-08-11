@@ -7,6 +7,9 @@
 
 namespace m3 {
 
+// forward declaration
+// Компилятору для ссылки/указателя достаточно знать, что тип существует 
+// не нужно знать его размер или содержимое (можно не включать заголовочный файл)
 class Board;
 class TextureCache;
 
@@ -25,7 +28,7 @@ private:
 
     SDL_Renderer* sdl_;
     TextureCache* textures_;
-    const Level*  level_;
+    const Level*  level_; // рендер не меняет настройки уровня, поэтому ссылка на const
 };
 
 }  // namespace m3

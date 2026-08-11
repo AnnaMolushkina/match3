@@ -88,7 +88,9 @@ bool init() {
         return false;
     }
 
-    if (!g_app.textures.load(g_app.sdl, g_app.level, error)) {
+    // Палитра грузится целиком и один раз за запуск — уровень лишь выбирает
+    // из неё нужные ему цвета.
+    if (!g_app.textures.load(g_app.sdl, error)) {
         SDL_Log("%s", error.c_str());
         return false;
     }

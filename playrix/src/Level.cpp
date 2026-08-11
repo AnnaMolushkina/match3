@@ -2,6 +2,7 @@
 
 #include "Config.h"
 
+#include <algorithm>
 #include <climits>
 #include <cstdlib>
 #include <fstream>
@@ -9,6 +10,7 @@
 namespace m3 {
 namespace {
 
+// Убирает пробелы, табуляции и переносы строк в начале и конце строки.
 std::string trim(const std::string& s) {
     const char* ws = " \t\r\n";
     size_t      b  = s.find_first_not_of(ws);
@@ -19,6 +21,8 @@ std::string trim(const std::string& s) {
 
 // Без исключений: Emscripten по умолчанию линкует libc++ без их раскрутки,
 // и std::stoi на мусорном значении просто оборвал бы работу.
+
+// Возвращает true и записывает в out, если текст — корректное целое число,
 bool parseInt(const std::string& text, int& out) {
     if (text.empty()) return false;
 
@@ -48,7 +52,11 @@ bool loadLevel(const char* path, Level& out, std::string& error) {
     }
 
     Level level;
-    level.chipSprites.clear();
+    level.chips.clear();
+
+    // Номер спрайта целевого цвета так, как он записан в файле; ниже
+    // переводится в индекс внутри level.chips. -1 — ключ не встретился.
+    int goalSprite = -1;
 
     std::string line;
     int         lineNo = 0;
@@ -71,20 +79,18 @@ bool loadLevel(const char* path, Level& out, std::string& error) {
             ok = parseInt(value, level.rows);
         } else if (key == "cols") {
             ok = parseInt(value, level.cols);
-        } else if (key == "colors") {
-            ok = parseInt(value, level.colors);
         } else if (key == "tile") {
             ok = parseInt(value, level.tile);
+        } else if (key == "colors") {
+            ok = parseInt(value, level.colors);
+        } else if (key == "chip") {
+            int sprite = 0;
+            ok = parseInt(value, sprite);
+            if (ok) level.chips.push_back(sprite);
         } else if (key == "goal_color") {
-            ok = parseInt(value, level.goalColor);
+            ok = parseInt(value, goalSprite);
         } else if (key == "goal_amount") {
             ok = parseInt(value, level.goalAmount);
-        } else if (key == "chip") {
-            level.chipSprites.push_back(value);
-        } else if (key == "font") {
-            level.fontFile = value;
-        } else if (key == "background") {
-            level.backgroundFile = value;
         } else {
             error = "строка " + std::to_string(lineNo) + ": неизвестный ключ `" + key + "`";
             return false;
@@ -101,30 +107,51 @@ bool loadLevel(const char* path, Level& out, std::string& error) {
         error = "rows и cols должны быть не меньше 3";
         return false;
     }
+    if (level.tile < 16) {
+        error = "tile должен быть не меньше 16";
+        return false;
+    }
     // Меньше трёх цветов — начальную раскладку без автоматчей не собрать.
     if (level.colors < 3) {
         error = "colors должно быть не меньше 3";
         return false;
     }
-    if (level.tile < 16) {
-        error = "tile должен быть не меньше 16";
-        return false;
-    }
-    if (static_cast<int>(level.chipSprites.size()) != level.colors) {
-        error = "задано " + std::to_string(level.chipSprites.size()) + " строк `chip`, а colors = " +
+    if (static_cast<int>(level.chips.size()) != level.colors) {
+        error = "задано " + std::to_string(level.chips.size()) + " строк `chip`, а colors = " +
                 std::to_string(level.colors);
         return false;
     }
-    if (level.goalColor < 0 || level.goalColor >= level.colors) {
-        error = "goal_color должен быть в диапазоне 0.." + std::to_string(level.colors - 1);
+    for (size_t i = 0; i < level.chips.size(); ++i) {
+        const int sprite = level.chips[i];
+        if (sprite < 0 || sprite >= cfg::kChipSpriteCount) {
+            error = "chip = " + std::to_string(sprite) + ": в палитре только " +
+                    std::to_string(cfg::kChipSpriteCount) +
+                    " спрайтов (см. kChipSprites в src/Config.h)";
+            return false;
+        }
+        // Дубль — это два одинаковых на вид цвета: матчи собирались бы там,
+        // где игрок их не видит.
+        const auto upTo = level.chips.begin() + static_cast<long>(i);
+        if (std::find(level.chips.begin(), upTo, sprite) != upTo) {
+            error = "chip = " + std::to_string(sprite) + " указан дважды";
+            return false;
+        }
+    }
+    if (goalSprite < 0) {
+        error = "не задан ключ `goal_color`";
         return false;
     }
+    // Цель задаётся номером спрайта, а внутри игры цвета плотно пронумерованы
+    // от нуля — переводим одно в другое сразу при загрузке.
+    const auto goalIt = std::find(level.chips.begin(), level.chips.end(), goalSprite);
+    if (goalIt == level.chips.end()) {
+        error = "goal_color = " + std::to_string(goalSprite) + ": такого цвета нет среди строк `chip`";
+        return false;
+    }
+    level.goalColor = static_cast<int>(goalIt - level.chips.begin());
+
     if (level.goalAmount <= 0) {
         error = "goal_amount должен быть больше нуля";
-        return false;
-    }
-    if (level.fontFile.empty()) {
-        error = "не задан ключ `font`";
         return false;
     }
 

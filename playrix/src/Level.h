@@ -6,22 +6,27 @@
 namespace m3 {
 
 // Параметры уровня, читаются из внешнего файла (assets/level.cfg).
-// Менять размер поля, число цветов и цель уровня можно без пересборки.
+// Менять размер поля, набор цветов и цель уровня можно без пересборки.
 struct Level {
-    int rows   = 8;
-    int cols   = 8;
-    int colors = 5;
-    int tile   = 64;  // размер клетки в пикселях
+    int rows = 8;
+    int cols = 8;
+    int tile = 64;  // размер клетки в пикселях
 
-    // Спрайты фишек: ровно `colors` штук, индекс = цвет фишки.
-    std::vector<std::string> chipSprites;
+    // Число цветов на уровне. Должно совпадать с длиной chips — проверяется
+    // при загрузке, чтобы опечатка в списке не осталась незамеченной.
+    int colors = 3;
+
+    // Цвета уровня: номера спрайтов из палитры cfg::kChipSprites.
+    // Board работает с плотными индексами внутри этого списка (0..colors-1),
+    // а отрисовка переводит их обратно в номер спрайта через sprite().
+    std::vector<int> chips;
 
     // Цель уровня: собрать goalAmount фишек цвета goalColor.
+    // goalColor — индекс внутри chips, а не номер спрайта.
     int goalColor  = 0;
     int goalAmount = 20;
 
-    std::string fontFile;
-    std::string backgroundFile;  // необязательный фон, пустая строка = нет
+    int sprite(int color) const { return chips[color]; }
 
     // Пиксельная раскладка, вычисляется из rows/cols/tile.
     int windowW() const;

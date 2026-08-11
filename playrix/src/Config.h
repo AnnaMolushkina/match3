@@ -1,14 +1,34 @@
 #pragma once
 
 #include <cstdint>
+#include <iterator>
 
-// Константы движка: тайминги, физика, палитра UI.
-// Всё, что относится к конкретному уровню (размер поля, число цветов,
+// Константы движка: пути к ассетам, тайминги, физика, палитра UI.
+// Всё, что относится к конкретному уровню (размер поля, набор цветов,
 // цель), лежит не здесь, а в файле уровня — см. Level.h и assets/level.cfg.
 namespace cfg {
 
 // ---- путь к файлу уровня ------------------------------------------------
 constexpr const char* kLevelFile = "assets/level.cfg";
+
+// ---- палитра спрайтов фишек ---------------------------------------------
+// Картинки общие для всех уровней. Уровень называет номера
+// нужных ему цветов. Индекс в массиве и есть номер цвета.
+inline constexpr const char* kChipSprites[] = {
+    "assets/red_60.png",     // 0 — красный
+    "assets/green_60.png",   // 1 — зелёный
+    "assets/cyan_60.png",    // 2 — голубой
+    "assets/yellow_60.png",  // 3 — жёлтый
+    "assets/purple_60.png",  // 4 — фиолетовый
+};
+
+inline constexpr int kChipSpriteCount = static_cast<int>(std::size(kChipSprites));
+
+// Фон игрового поля; пустая строка — подложку рисует Renderer.
+inline constexpr const char* kBackgroundSprite = "";
+
+// Шрифт интерфейса — тоже общий для всех уровней.
+inline constexpr const char* kFontFile = "assets/font.ttf";
 
 // ---- раскладка окна -----------------------------------------------------
 constexpr int kMargin = 24;   // поля вокруг игрового поля

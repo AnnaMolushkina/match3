@@ -68,7 +68,7 @@ private:
     int              rows_;
     int              cols_;
     int              colors_;
-    std::vector<int> cells_;
+    std::vector<int> cells_; // внутри лежит номер цвета фишки или kEmpty, если клетка пуста
     std::mt19937     rng_;
 };
 

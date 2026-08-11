@@ -6,22 +6,25 @@
 namespace m3 {
 
 Renderer::Renderer(SDL_Renderer* sdl, TextureCache& textures, const Level& level)
-    : sdl_(sdl), textures_(&textures), level_(&level) {}
+    : sdl_(sdl), textures_(&textures), level_(&level) {} //берем адрес ссылок, чтобы сохранить их как указатели в полях класса
 
+// Рисуем прямоугольник заданного цвета и прозрачности.
 void Renderer::fill(int x, int y, int w, int h, cfg::Rgb color, Uint8 alpha) {
     SDL_SetRenderDrawColor(sdl_, color.r, color.g, color.b, alpha);
     SDL_Rect rect{x, y, w, h};
     SDL_RenderFillRect(sdl_, &rect);
 }
 
+// Очистить экран перед отрисовкой нового кадра.
 void Renderer::clear() {
     SDL_SetRenderDrawBlendMode(sdl_, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(sdl_, cfg::kBgColor.r, cfg::kBgColor.g, cfg::kBgColor.b, 255);
     SDL_RenderClear(sdl_);
 }
 
+// Показать на экране то, что нарисовали в буфере SDL_Renderer
 void Renderer::present() { SDL_RenderPresent(sdl_); }
-
+// Фон под полем
 void Renderer::drawBoardBackground() {
     const int x = level_->boardX();
     const int y = level_->boardY();
@@ -41,6 +44,7 @@ void Renderer::drawBoardBackground() {
     }
 }
 
+// Рисует всё поле с фишками 
 void Renderer::drawBoard(const Board& board) {
     drawBoardBackground();
 
@@ -49,12 +53,14 @@ void Renderer::drawBoard(const Board& board) {
             const int color = board.at(r, c);
             if (color == kEmpty) continue;
 
-            SDL_Texture* texture = textures_->chip(color);
+            // Board нумерует цвета подряд от нуля, а текстуры лежат по
+            // номерам спрайтов из палитры — перевод делает уровень.
+            SDL_Texture* texture = textures_->chip(level_->sprite(color));
             if (!texture) continue;
-
+            // dst — прямоугольник на экране, куда SDL_RenderCopy нарисует текстуру
             SDL_Rect dst{level_->boardX() + c * level_->tile, level_->boardY() + r * level_->tile,
                          level_->tile, level_->tile};
-            SDL_RenderCopy(sdl_, texture, nullptr, &dst);
+            SDL_RenderCopy(sdl_, texture, nullptr, &dst); // SDL_RenderCopy рисует текстуру в dst, растягивая её на dst.w x dst.h пикселей
         }
     }
 }
