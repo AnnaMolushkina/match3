@@ -3,6 +3,8 @@
 #include "Board.h"
 #include "TextureCache.h"
 
+#include <cmath>
+
 namespace m3 {
 
 Renderer::Renderer(SDL_Renderer* sdl, TextureCache& textures, const Level& level)
@@ -13,6 +15,14 @@ void Renderer::fill(int x, int y, int w, int h, cfg::Rgb color, Uint8 alpha) {
     SDL_SetRenderDrawColor(sdl_, color.r, color.g, color.b, alpha);
     SDL_Rect rect{x, y, w, h};
     SDL_RenderFillRect(sdl_, &rect);
+}
+
+// Рисуем только контур прямоугольника — четыре полосы по краям.
+void Renderer::frame(int x, int y, int w, int h, int t, cfg::Rgb color) {
+    fill(x, y, w, t, color);                      // сверху
+    fill(x, y + h - t, w, t, color);              // снизу
+    fill(x, y + t, t, h - 2 * t, color);          // слева
+    fill(x + w - t, y + t, t, h - 2 * t, color);  // справа
 }
 
 // Очистить экран перед отрисовкой нового кадра.
@@ -44,9 +54,24 @@ void Renderer::drawBoardBackground() {
     }
 }
 
-// Рисует всё поле с фишками 
-void Renderer::drawBoard(const Board& board) {
+// Рисует всё поле с фишками
+void Renderer::drawBoard(const Board& board, const std::vector<ChipView>& views,
+                        const Cell* selected) {
     drawBoardBackground();
+
+    // Подсветка выбранной клетки рисуется до фишек: полупрозрачная заливка
+    // и рамка остаются под спрайтом и не перечёркивают его.
+    if (selected) {
+        const int x = level_->boardX() + selected->c * level_->tile;
+        const int y = level_->boardY() + selected->r * level_->tile;
+        fill(x, y, level_->tile, level_->tile, cfg::kSelectColor, 55);
+        frame(x, y, level_->tile, level_->tile, cfg::kSelectFrame, cfg::kSelectColor);
+    }
+
+    // Новые фишки начинают падение выше поля, поэтому обрезаем всё, что
+    // выходит за его границы: иначе они рисовались бы поверх отступа и панели.
+    const SDL_Rect clip{level_->boardX(), level_->boardY(), level_->boardW(), level_->boardH()};
+    SDL_RenderSetClipRect(sdl_, &clip);
 
     for (int r = 0; r < board.rows(); ++r) {
         for (int c = 0; c < board.cols(); ++c) {
@@ -57,12 +82,22 @@ void Renderer::drawBoard(const Board& board) {
             // номерам спрайтов из палитры — перевод делает уровень.
             SDL_Texture* texture = textures_->chip(level_->sprite(color));
             if (!texture) continue;
+
+            const ChipView& view  = views[board.index(r, c)];
+            const long      alpha = std::lround(view.alpha * 255.0f);
+            if (alpha <= 0) continue;  // фишка уже растворилась
+            SDL_SetTextureAlphaMod(texture, static_cast<Uint8>(alpha));
+
             // dst — прямоугольник на экране, куда SDL_RenderCopy нарисует текстуру
-            SDL_Rect dst{level_->boardX() + c * level_->tile, level_->boardY() + r * level_->tile,
+            SDL_Rect dst{level_->boardX() + c * level_->tile,
+                         level_->boardY() + r * level_->tile +
+                             static_cast<int>(std::lround(view.offsetY)),
                          level_->tile, level_->tile};
             SDL_RenderCopy(sdl_, texture, nullptr, &dst); // SDL_RenderCopy рисует текстуру в dst, растягивая её на dst.w x dst.h пикселей
         }
     }
+
+    SDL_RenderSetClipRect(sdl_, nullptr);
 }
 
 }  // namespace m3

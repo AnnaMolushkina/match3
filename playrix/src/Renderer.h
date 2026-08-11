@@ -2,6 +2,9 @@
 
 #include <SDL2/SDL.h>
 
+#include <vector>
+
+#include "ChipView.h"
 #include "Config.h"
 #include "Level.h"
 
@@ -12,6 +15,7 @@ namespace m3 {
 // не нужно знать его размер или содержимое (можно не включать заголовочный файл)
 class Board;
 class TextureCache;
+struct Cell;
 
 // Отрисовка: Renderer ничего не знает про правила игры, ему передают готовое поле.
 class Renderer {
@@ -20,10 +24,14 @@ public:
 
     void clear();
     void present();
-    void drawBoard(const Board& board);
+    // views — смещение и прозрачность фишек, снимок анимации на этот кадр.
+    // selected — клетка под подсветкой; nullptr, если игрок ничего не выбрал.
+    void drawBoard(const Board& board, const std::vector<ChipView>& views,
+                   const Cell* selected = nullptr);
 
 private:
     void fill(int x, int y, int w, int h, cfg::Rgb color, Uint8 alpha = 255);
+    void frame(int x, int y, int w, int h, int thickness, cfg::Rgb color);
     void drawBoardBackground();
 
     SDL_Renderer* sdl_;

@@ -4,9 +4,7 @@
 #include <vector>
 
 namespace m3 {
-
 // Параметры уровня, читаются из внешнего файла (assets/level.cfg).
-// Менять размер поля, набор цветов и цель уровня можно без пересборки.
 struct Level {
     int rows = 8;
     int cols = 8;

@@ -34,6 +34,9 @@ inline constexpr const char* kFontFile = "assets/font.ttf";
 constexpr int kMargin = 24;   // поля вокруг игрового поля
 constexpr int kPanelW = 180;  // ширина левой панели с целью уровня
 
+// Толщина рамки, которой обводится выбранная фишка.
+constexpr int kSelectFrame = 3;
+
 // ---- тайминги, секунды --------------------------------------------------
 constexpr float kSwapTime    = 0.15f;
 constexpr float kRemoveTime  = 0.24f;
@@ -41,6 +44,10 @@ constexpr float kShuffleTime = 0.40f;
 constexpr float kSquashTime  = 0.14f;
 constexpr float kWinDelay    = 1.60f;
 constexpr float kShuffleHold = 0.35f;  // пауза с надписью перед перетасовкой
+
+// Потолок для шага кадра: если вкладку свернули, dt накопится за всё время,
+// и без ограничения фишки телепортировались бы одним огромным шагом.
+constexpr float kMaxFrameTime = 0.05f;
 
 // ---- физика падения -----------------------------------------------------
 constexpr float kGravity  = 3600.0f;  // px/s^2

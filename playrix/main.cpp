@@ -10,6 +10,7 @@
 
 #include "src/Board.h"
 #include "src/Config.h"
+#include "src/Game.h"
 #include "src/Level.h"
 #include "src/Renderer.h"
 #include "src/TextureCache.h"
@@ -22,8 +23,10 @@ struct App {
     m3::Level        level;
     m3::TextureCache textures;
     m3::Board*       board    = nullptr;
+    m3::Game*        game     = nullptr;
     m3::Renderer*    renderer = nullptr;
     bool             running  = true;
+    uint64_t         lastTick = 0;  // время предыдущего кадра, мс
 };
 
 App g_app;
@@ -44,16 +47,30 @@ void frame() {
     while (SDL_PollEvent(&event)) {
         if (event.type == SDL_QUIT) {
             g_app.running = false;
+        } else if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT) {
+            // Канвас в index.html не масштабируется, поэтому координаты события
+            // совпадают с пикселями окна и пересчёт не нужен.
+            g_app.game->onClick(event.button.x, event.button.y);
         } else if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_r) {
             // Перегенерация поля: удобно прокликать десяток раскладок подряд
             // и убедиться, что автоматчей не бывает.
             g_app.board->reset();
+            g_app.game->reset();
             reportMatches(*g_app.board);
         }
     }
 
+    // Шаг времени в секундах: анимации считаются от него, а не от номера
+    // кадра, поэтому скорость падения не зависит от частоты обновления экрана.
+    const uint64_t now = SDL_GetTicks64();
+    float          dt  = static_cast<float>(now - g_app.lastTick) / 1000.0f;
+    g_app.lastTick     = now;
+    if (dt > cfg::kMaxFrameTime) dt = cfg::kMaxFrameTime;
+
+    g_app.game->update(dt);
+
     g_app.renderer->clear();
-    g_app.renderer->drawBoard(*g_app.board);
+    g_app.renderer->drawBoard(*g_app.board, g_app.game->views(), g_app.game->selected());
     g_app.renderer->present();
 }
 
@@ -100,7 +117,12 @@ bool init() {
     g_app.board->reset();
     reportMatches(*g_app.board);
 
+    g_app.game     = new m3::Game(*g_app.board, g_app.level);
     g_app.renderer = new m3::Renderer(g_app.sdl, g_app.textures, g_app.level);
+
+    // Отсечка времени берётся до первого кадра, иначе первый dt был бы равен
+    // всей длительности загрузки.
+    g_app.lastTick = SDL_GetTicks64();
     return true;
 }
 
