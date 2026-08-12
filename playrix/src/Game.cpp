@@ -4,7 +4,21 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstdio>
 #include <vector>
+
+namespace {
+// Красивое имя типа бустера для логов в браузере
+const char* boosterName(cfg::BoosterType type) {
+    switch (type) {
+        case cfg::BoosterType::Line:     return "Ракета (4 в ряд)";
+        case cfg::BoosterType::Rainbow:  return "Шар (5+ в ряд)";
+        case cfg::BoosterType::Bomb:     return "Бомба (L/T)";
+        case cfg::BoosterType::Airplane: return "Самолётик (2x2)";
+        default:                         return "Обычный матч";
+    }
+}
+}  // namespace
 
 namespace m3 {
 
@@ -100,8 +114,11 @@ void Game::update(float dt) {
 // Собран матч (ручной или каскадный) — запоминаем его клетки и начинаем
 // растворение. Поле в Board пока не тронуто: фишки ещё нужно показать.
 void Game::beginRemoving() {
-    matches_ = board_->findMatches();
-    if (matches_.empty()) {
+    // Собираем все матчи, группируем их по связности, классифицируем каждую группу
+    const std::vector<MatchGroup> groups = board_->collectMatchGroups();
+    
+    // Если после очистки и гравитации нет новых матчей, groups будет пуста
+    if (groups.empty()) {
         // Поле успокоилось — только теперь можно смотреть на цель. Перезапускать
         // уровень посреди каскада нельзя: фишки ещё летят, и игрок не увидел бы,
         // чем закончился его ход.
@@ -118,6 +135,20 @@ void Game::beginRemoving() {
         phase_ = Phase::Idle;  // ждём следующий ход
         return;
     }
+
+    // Собираем все замэтченные клетки в один вектор и логируем каждый бустер
+    std::vector<Cell> allCells;
+    for (const MatchGroup& group : groups) {
+        if (group.booster != cfg::BoosterType::None) {
+            std::printf("[Матч] %s (%zu фишек)\n", boosterName(group.booster), group.cells.size());
+        }
+        for (const Cell& cell : group.cells) {
+            allCells.push_back(cell);
+        }
+    }
+
+    // Сохраняем в matches_ для визуализации отдельных фишек во время Removing фазы
+    matches_ = allCells;
     phase_ = Phase::Removing;
     timer_ = 0.0f;
 }

@@ -4,6 +4,8 @@
 #include <random>
 #include <vector>
 
+#include "Config.h"
+
 namespace m3 {
 
 constexpr int kEmpty = -1;
@@ -22,6 +24,12 @@ struct FallMove {
     int  fromRow = 0;
     int  toRow   = 0;
     bool spawned = false;
+};
+
+// Кусок замэтченных клеток одной формы + тип бустера, который они дают.
+struct MatchGroup {
+    std::vector<Cell> cells;
+    cfg::BoosterType  booster;
 };
 
 // Чистая логика поля: никакого SDL, никакой отрисовки, никаких анимаций.
@@ -61,15 +69,32 @@ public:
     // result[newIndex] == oldIndex, чтобы визуальный слой знал, что куда летит.
     std::vector<int> shuffle();
 
+    // Найти 2x2 квадраты одного цвета, опционально с одной соседней фишкой того же цвета
+    std::vector<Cell> findPlanes() const;
+
+    // Собрать все матчи, разбить на связные группы и классифицировать каждую
+    std::vector<MatchGroup> collectMatchGroups() const;
+
 private:
     int  pickColor();
     bool matchesRunFrom(int r, int c, int dr, int dc) const;
+
+    // Проверить, содержит ли группа клеток цельный 2x2 квадрат
+    bool containsSquare(const std::vector<Cell>& cells) const;
+
+    // Классифицировать одну связную группу по форме → тип бустера
+    cfg::BoosterType classifyMatch(const std::vector<Cell>& cells) const;
+
+    // Разбить плоский список клеток на связные компоненты по цвету
+    std::vector<std::vector<Cell>> groupByColor(const std::vector<Cell>& cells) const;
 
     int              rows_;
     int              cols_;
     int              colors_;
     std::vector<int> cells_; // внутри лежит номер цвета фишки или kEmpty, если клетка пуста
     std::mt19937     rng_;
+
 };
+
 
 }  // namespace m3

@@ -76,4 +76,13 @@ constexpr Rgb kTextShadow     = {24, 24, 32};
 //constexpr Rgb kProgressBg     = {60, 60, 78};
 constexpr Rgb kProgressFill   = {112, 210, 130};
 
+// ---- типы бустеров --------------------------------------------------------
+enum class BoosterType {
+    None,       // обычный матч (3 фишки)
+    Line,       // ровно 4 в одну линию (горизонтальную или вертикальную)
+    Rainbow,    // 5 или больше в одну линию
+    Bomb,       // L или T форма (две линии разных направлений пересекаются)
+    Airplane    // 2x2 квадрат
+};
+
 }  // namespace cfg

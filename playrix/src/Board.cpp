@@ -1,7 +1,10 @@
 #include "Board.h"
 
 #include <algorithm>
+#include <map>
 #include <numeric>
+#include <set>
+#include <unordered_set>
 
 namespace m3 {
 
@@ -17,9 +20,8 @@ int Board::pickColor() {
 // Случайная раскладка без готовых матчей и гарантированно с ходом.
 void Board::reset() {
     // Раскладываем по клеткам слева направо, сверху вниз, исключая цвет,
-    // который дал бы тройку с двумя уже лежащими соседями слева или сверху.
-    // Так автоматчей не бывает по построению — без цикла «сгенерировали и
-    // проверили». Кандидатов всегда хотя бы colors_ - 2, то есть минимум один.
+    // который дал бы тройку с двумя уже лежащими соседями слева или сверху,
+    // а также исключая цвет, который бы создал 2x2 квадрат.
     std::vector<int> candidates;
     candidates.reserve(colors_);
 
@@ -28,8 +30,19 @@ void Board::reset() {
             for (int c = 0; c < cols_; ++c) {
                 candidates.clear();
                 for (int color = 0; color < colors_; ++color) {
+                    // Проверка на линейные матчи (3+ в ряд)
                     if (c >= 2 && at(r, c - 1) == color && at(r, c - 2) == color) continue;
                     if (r >= 2 && at(r - 1, c) == color && at(r - 2, c) == color) continue;
+                    
+                    // Проверка на 2x2 квадрат (самолетик)
+                    // (r, c) будет нижним-правым углом, остальные три уже заполнены
+                    if (r >= 1 && c >= 1 && 
+                        at(r - 1, c - 1) == color && 
+                        at(r - 1, c) == color && 
+                        at(r, c - 1) == color) {
+                        continue;
+                    }
+                    
                     candidates.push_back(color);
                 }
                 std::uniform_int_distribution<size_t> dist(0, candidates.size() - 1);
@@ -52,11 +65,26 @@ bool Board::matchesRunFrom(int r, int c, int dr, int dc) const {
 }
 
 bool Board::hasAnyMatch() const {
+    // Проверяем линейные матчи (3+ в ряд)
     for (int r = 0; r < rows_; ++r) {
         for (int c = 0; c < cols_; ++c) {
             if (matchesRunFrom(r, c, 0, 1) || matchesRunFrom(r, c, 1, 0)) return true;
         }
     }
+    
+    // Проверяем 2x2 квадраты (самолетики)
+    for (int r = 0; r + 1 < rows_; ++r) {
+        for (int c = 0; c + 1 < cols_; ++c) {
+            const int color = at(r, c);
+            if (color != kEmpty && 
+                at(r, c + 1) == color && 
+                at(r + 1, c) == color && 
+                at(r + 1, c + 1) == color) {
+                return true;
+            }
+        }
+    }
+    
     return false;
 }
 
@@ -186,6 +214,227 @@ std::vector<int> Board::shuffle() {
     reset();
     std::iota(perm.begin(), perm.end(), 0);
     return perm;
+}
+
+std::vector<Cell> Board::findPlanes() const {
+    std::vector<char> marked(cells_.size(), 0);
+
+    for (int r = 0; r + 1 < rows_; ++r) {
+        for (int c = 0; c + 1 < cols_; ++c) {
+            const int color = at(r, c);
+            if (color == kEmpty) continue;
+            if (at(r, c + 1) != color || at(r + 1, c) != color || at(r + 1, c + 1) != color) continue;
+
+            // Нашли 2x2 блок — помечаем его 4 клетки.
+            marked[index(r, c)]         = 1;
+            marked[index(r, c + 1)]     = 1;
+            marked[index(r + 1, c)]     = 1;
+            marked[index(r + 1, c + 1)] = 1;
+
+            // Проверяем 8 клеток, касающихся блока по стороне (не по диагонали).
+            // Идём в фиксированном порядке и берём первую подходящую —
+            // фигуре нужна максимум одна лишняя клетка.
+            const Cell ring[8] = {
+                {r - 1, c},     {r - 1, c + 1},   // сверху
+                {r + 2, c},     {r + 2, c + 1},   // снизу
+                {r, c - 1},     {r + 1, c - 1},   // слева
+                {r, c + 2},     {r + 1, c + 2},   // справа
+            };
+            for (const Cell& n : ring) {
+                if (!inside(n.r, n.c)) continue;
+                if (at(n.r, n.c) != color) continue;
+                marked[index(n.r, n.c)] = 1;
+                break;  // одной лишней клетки достаточно
+            }
+        }
+    }
+
+    std::vector<Cell> result;
+    for (int r = 0; r < rows_; ++r)
+        for (int c = 0; c < cols_; ++c)
+            if (marked[index(r, c)]) result.push_back({r, c});
+    return result;
+}
+
+// Есть ли внутри группы клеток хотя бы один цельный 2x2 квадрат.
+bool Board::containsSquare(const std::vector<Cell>& cells) const {
+    std::set<std::pair<int, int>> set;
+    for (const Cell& cell : cells) set.insert({cell.r, cell.c});
+
+    for (const Cell& cell : cells) {
+        const int r = cell.r, c = cell.c;
+        if (set.count({r, c + 1}) && set.count({r + 1, c}) && set.count({r + 1, c + 1})) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Классификация одной связной группы клеток по форме → тип бустера.
+cfg::BoosterType Board::classifyMatch(const std::vector<Cell>& cells) const {
+    if (cells.empty()) return cfg::BoosterType::None;
+
+    const int cellCount = static_cast<int>(cells.size());
+
+    // ---- Проверка 1: чистая горизонтальная или вертикальная линия ----
+    bool allSameRow = true;
+    bool allSameCol = true;
+    for (size_t i = 1; i < cells.size(); ++i) {
+        if (cells[i].r != cells[0].r) allSameRow = false;
+        if (cells[i].c != cells[0].c) allSameCol = false;
+    }
+
+    if (allSameRow || allSameCol) {
+        if (cellCount >= 5) return cfg::BoosterType::Rainbow;
+        if (cellCount == 4) return cfg::BoosterType::Line;
+        return cfg::BoosterType::None;
+    }
+
+    // ---- Проверка 2: максимальная линия (для T/L форм с 5+) ----
+    // Если есть 5+ подряд в любом направлении → Rainbow (даже в T-форме)
+
+    // Найти максимальную горизонтальную линию
+    std::map<int, std::vector<int>> byRow;
+    for (const auto& cell : cells) {
+        byRow[cell.r].push_back(cell.c);
+    }
+    int maxHorizontal = 0;
+    for (auto& [r, cols] : byRow) {
+        std::sort(cols.begin(), cols.end());
+        int count = 1;
+        for (size_t i = 1; i < cols.size(); ++i) {
+            if (cols[i] == cols[i-1] + 1) {
+                count++;
+            } else {
+                maxHorizontal = std::max(maxHorizontal, count);
+                count = 1;
+            }
+        }
+        maxHorizontal = std::max(maxHorizontal, count);
+    }
+
+    // Найти максимальную вертикальную линию
+    std::map<int, std::vector<int>> byCol;
+    for (const auto& cell : cells) {
+        byCol[cell.c].push_back(cell.r);
+    }
+    int maxVertical = 0;
+    for (auto& [c, rows] : byCol) {
+        std::sort(rows.begin(), rows.end());
+        int count = 1;
+        for (size_t i = 1; i < rows.size(); ++i) {
+            if (rows[i] == rows[i-1] + 1) {
+                count++;
+            } else {
+                maxVertical = std::max(maxVertical, count);
+                count = 1;
+            }
+        }
+        maxVertical = std::max(maxVertical, count);
+    }
+
+    int maxLine = std::max(maxHorizontal, maxVertical);
+    if (maxLine >= 5) return cfg::BoosterType::Rainbow;
+
+    // ---- Проверка 2: Самолетик может быть только из 4 или 5 фишек ----
+    // Если 6+ фишек — это точно бомба, даже если есть 2x2
+    if (cellCount <= 5 && containsSquare(cells)) {
+        return cfg::BoosterType::Airplane;  // 4 клетки квадрата или 4 + 1 соседняя
+    }
+
+    // ---- Проверка 3: L/T форма (бомба) — занимает 2+ строк И 2+ столбцов ----
+    int minR = cells[0].r, maxR = cells[0].r;
+    int minC = cells[0].c, maxC = cells[0].c;
+    for (const auto& cell : cells) {
+        minR = std::min(minR, cell.r);
+        maxR = std::max(maxR, cell.r);
+        minC = std::min(minC, cell.c);
+        maxC = std::max(maxC, cell.c);
+    }
+
+    if ((maxR - minR > 0) && (maxC - minC > 0)) {
+        return cfg::BoosterType::Bomb;
+    }
+
+    return cfg::BoosterType::None;
+}
+
+// Разбить плоский список замэтченных клеток на связные компоненты по цвету.
+// DFS: для каждой непосещённой клетки стартуем обход, собирая все клетки
+// того же цвета, до которых можно добраться через соседей.
+std::vector<std::vector<Cell>> Board::groupByColor(const std::vector<Cell>& cells) const {
+    if (cells.empty()) return {};
+
+    // Индексация для быстрого поиска
+    std::unordered_set<int> cellSet;
+    for (const Cell& cell : cells) cellSet.insert(index(cell.r, cell.c));
+
+    std::unordered_set<int> visited;
+    std::vector<std::vector<Cell>> groups;
+
+    for (const Cell& cell : cells) {
+        const int idx = index(cell.r, cell.c);
+        if (visited.count(idx)) continue;
+
+        // DFS для текущей компоненты
+        std::vector<Cell> group;
+        std::vector<Cell> stack;
+        stack.push_back(cell);
+
+        while (!stack.empty()) {
+            Cell cur = stack.back();
+            stack.pop_back();
+
+            const int curIdx = index(cur.r, cur.c);
+            if (visited.count(curIdx)) continue;
+            visited.insert(curIdx);
+            group.push_back(cur);
+
+            // Проверяем 4 соседей (без диагоналей)
+            const int dr[] = {-1, 1, 0, 0};
+            const int dc[] = {0, 0, -1, 1};
+            for (int d = 0; d < 4; ++d) {
+                const int nr = cur.r + dr[d];
+                const int nc = cur.c + dc[d];
+                const int nIdx = index(nr, nc);
+                if (!inside(nr, nc)) continue;
+                if (visited.count(nIdx)) continue;
+                if (!cellSet.count(nIdx)) continue;
+                // Дополнительная проверка: одного ли цвета?
+                if (at(nr, nc) != at(cur.r, cur.c)) continue;
+                stack.push_back({nr, nc});
+            }
+        }
+
+        if (!group.empty()) {
+            groups.push_back(std::move(group));
+        }
+    }
+
+    return groups;
+}
+
+std::vector<MatchGroup> Board::collectMatchGroups() const {
+    const std::vector<Cell> lineCells  = findMatches();
+    const std::vector<Cell> planeCells = findPlanes();
+
+    std::unordered_set<int> seen;
+    std::vector<Cell>       merged;
+    for (const Cell& cell : lineCells) {
+        if (seen.insert(index(cell.r, cell.c)).second) merged.push_back(cell);
+    }
+    for (const Cell& cell : planeCells) {
+        if (seen.insert(index(cell.r, cell.c)).second) merged.push_back(cell);
+    }
+
+    std::vector<MatchGroup> result;
+    for (std::vector<Cell> group : groupByColor(merged)) {
+        MatchGroup mg;
+        mg.booster = classifyMatch(group);
+        mg.cells   = std::move(group);
+        result.push_back(std::move(mg));
+    }
+    return result;
 }
 
 }  // namespace m3
