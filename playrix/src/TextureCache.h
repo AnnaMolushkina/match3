@@ -5,10 +5,12 @@
 #include <string>
 #include <vector>
 
+#include "Config.h"
+
 namespace m3 {
 
-// Владеет текстурами фишек и фоном.
-// Грузит всю палитру cfg::kChipSprites один раз за запуск
+// Владеет текстурами фишек, бустеров и фоном.
+// Грузит всю палитру cfg::kChipSprites и cfg::kBoosterSprites один раз за запуск.
 class TextureCache {
 public:
     ~TextureCache();
@@ -19,10 +21,13 @@ public:
     // Аргумент — номер спрайта в палитре
     // перевод одного в другое делает Level::sprite().
     SDL_Texture* chip(int sprite) const;
+    // Спрайт бустера по его типу; nullptr для BoosterType::None.
+    SDL_Texture* booster(cfg::BoosterType type) const;
     SDL_Texture* background() const { return background_; }
 
 private:
     std::vector<SDL_Texture*> chips_;
+    std::vector<SDL_Texture*> boosters_;
     SDL_Texture*              background_ = nullptr;
 };
 

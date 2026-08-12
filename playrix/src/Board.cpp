@@ -9,7 +9,8 @@
 namespace m3 {
 
 Board::Board(int rows, int cols, int colors, uint32_t seed)
-    : rows_(rows), cols_(cols), colors_(colors), cells_(rows * cols, kEmpty), rng_(seed) {}
+    : rows_(rows), cols_(cols), colors_(colors), cells_(rows * cols, kEmpty),
+      boosters_(rows * cols, cfg::BoosterType::None), rng_(seed) {}
 
 // Случайный выбор цвета из диапазона [0, colors_ - 1].
 int Board::pickColor() {
@@ -19,6 +20,9 @@ int Board::pickColor() {
 
 // Случайная раскладка без готовых матчей и гарантированно с ходом.
 void Board::reset() {
+    // Свежая раскладка — бустеров на поле ещё нет.
+    boosters_.assign(cells_.size(), cfg::BoosterType::None);
+
     // Раскладываем по клеткам слева направо, сверху вниз, исключая цвет,
     // который дал бы тройку с двумя уже лежащими соседями слева или сверху,
     // а также исключая цвет, который бы создал 2x2 квадрат.
@@ -55,11 +59,12 @@ void Board::reset() {
 
 void Board::swapCells(Cell a, Cell b) {
     std::swap(cells_[index(a.r, a.c)], cells_[index(b.r, b.c)]);
+    std::swap(boosters_[index(a.r, a.c)], boosters_[index(b.r, b.c)]);
 }
 
 bool Board::matchesRunFrom(int r, int c, int dr, int dc) const {
     const int color = at(r, c);
-    if (color == kEmpty) return false;
+    if (color < 0) return false;  // пусто или бустер — у бустера нет цвета для матча
     return inside(r + 2 * dr, c + 2 * dc) && at(r + dr, c + dc) == color &&
            at(r + 2 * dr, c + 2 * dc) == color;
 }
@@ -76,9 +81,9 @@ bool Board::hasAnyMatch() const {
     for (int r = 0; r + 1 < rows_; ++r) {
         for (int c = 0; c + 1 < cols_; ++c) {
             const int color = at(r, c);
-            if (color != kEmpty && 
-                at(r, c + 1) == color && 
-                at(r + 1, c) == color && 
+            if (color >= 0 &&
+                at(r, c + 1) == color &&
+                at(r + 1, c) == color &&
                 at(r + 1, c + 1) == color) {
                 return true;
             }
@@ -107,7 +112,9 @@ std::vector<Cell> Board::findMatches() const {
                 const int color = at(r, c);
                 int       run   = 1;
                 // Считаем run — длину серии одинаковых фишек в направлении (dr, dc).
-                if (color != kEmpty) {
+                // color < 0 — пустая клетка или бустер: у бустера нет цвета,
+                // он не может ни начать, ни продолжить цветовую серию.
+                if (color >= 0) {
                     while (inner + run < innerCount) {
                         const int nr = dc ? outer : inner + run;
                         const int nc = dc ? inner + run : outer;
@@ -116,7 +123,7 @@ std::vector<Cell> Board::findMatches() const {
                     }
                 }
                 // Если серия длиной >= 3, то отмечаем все её клетки в маске.
-                if (color != kEmpty && run >= 3) {
+                if (color >= 0 && run >= 3) {
                     for (int k = 0; k < run; ++k) {
                         const int nr = dc ? outer : inner + k;
                         const int nc = dc ? inner + k : outer;
@@ -142,7 +149,10 @@ std::vector<Cell> Board::findMatches() const {
 
 // Стереть клетки после матча
 void Board::clear(const std::vector<Cell>& cells) {
-    for (const Cell& cell : cells) set(cell.r, cell.c, kEmpty);
+    for (const Cell& cell : cells) {
+        set(cell.r, cell.c, kEmpty);
+        boosters_[index(cell.r, cell.c)] = cfg::BoosterType::None;
+    }
 }
 
 // гравитация: падение фишек и спавн новых
@@ -157,6 +167,8 @@ std::vector<FallMove> Board::applyGravity() {
             if (write != r) {
                 set(write, c, at(r, c));
                 set(r, c, kEmpty);
+                boosters_[index(write, c)] = boosters_[index(r, c)];
+                boosters_[index(r, c)]     = cfg::BoosterType::None;
                 moves.push_back({c, r, write, false});
             }
             --write;
@@ -166,7 +178,8 @@ std::vector<FallMove> Board::applyGravity() {
         const int spawnCount = write + 1;
         for (int r = write; r >= 0; --r) {
             set(r, c, pickColor());
-            moves.push_back({c, r - spawnCount, r, true}); 
+            boosters_[index(r, c)] = cfg::BoosterType::None;  // новая фишка без бустера
+            moves.push_back({c, r - spawnCount, r, true});
             // fromRow отрицателен для фишек, рождённых выше верхнего края поля
         }
     }
@@ -194,16 +207,20 @@ bool Board::hasValidMove() const {
 }
 
 std::vector<int> Board::shuffle() {
-    const std::vector<int> original = cells_; 
-    // сохраняем текущую раскладку, чтобы потом проверить, 
+    const std::vector<int> original = cells_;
+    // сохраняем текущую раскладку, чтобы потом проверить,
     // что она не содержит матчей и имеет хотя бы один ход
+    const std::vector<cfg::BoosterType> originalBoosters = boosters_;  // бустеры едут вместе с фишками
 
     std::vector<int> perm(cells_.size()); // вектор перестановки индексов, который будем перемешивать
     std::iota(perm.begin(), perm.end(), 0); // заполняем perm числами 0, 1, ..cellCount()-1
 
     for (int attempt = 0; attempt < 500; ++attempt) {
         std::shuffle(perm.begin(), perm.end(), rng_); // случайным образом перемешиваем вектор индексов
-        for (size_t i = 0; i < perm.size(); ++i) cells_[i] = original[perm[i]];
+        for (size_t i = 0; i < perm.size(); ++i) {
+            cells_[i]    = original[perm[i]];
+            boosters_[i] = originalBoosters[perm[i]];
+        }
         // физически переставляем фишки на поле в соответствии с perm
         if (!hasAnyMatch() && hasValidMove()) return perm;
         // визуальный слой узнает, что куда летит по этой перестановке: result[newIndex] == oldIndex
@@ -222,7 +239,7 @@ std::vector<Cell> Board::findPlanes() const {
     for (int r = 0; r + 1 < rows_; ++r) {
         for (int c = 0; c + 1 < cols_; ++c) {
             const int color = at(r, c);
-            if (color == kEmpty) continue;
+            if (color < 0) continue;  // пусто или бустер — не может быть углом квадрата
             if (at(r, c + 1) != color || at(r + 1, c) != color || at(r + 1, c + 1) != color) continue;
 
             // Нашли 2x2 блок — помечаем его 4 клетки.

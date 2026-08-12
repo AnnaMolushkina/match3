@@ -81,9 +81,17 @@ void Renderer::drawBoard(const Board& board, const std::vector<ChipView>& views,
             const int color = board.at(r, c);
             if (color == kEmpty) continue;
 
-            // Board нумерует цвета подряд от нуля, а текстуры лежат по
-            // номерам спрайтов из палитры — перевод делает уровень.
-            SDL_Texture* texture = textures_->chip(level_->sprite(color));
+            // Клетка с бустером рисуется его спрайтом вместо обычной фишки —
+            // сама фишка при этом просто «одета» в бустер, цвет под ним не теряется.
+            const cfg::BoosterType booster = board.boosterAt(r, c);
+            SDL_Texture*           texture;
+            if (booster != cfg::BoosterType::None) {
+                texture = textures_->booster(booster);
+            } else {
+                // Board нумерует цвета подряд от нуля, а текстуры лежат по
+                // номерам спрайтов из палитры — перевод делает уровень.
+                texture = textures_->chip(level_->sprite(color));
+            }
             if (!texture) continue;
 
             const ChipView& view  = views[board.index(r, c)];

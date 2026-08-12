@@ -24,6 +24,19 @@ inline constexpr const char* kChipSprites[] = {
 
 inline constexpr int kChipSpriteCount = static_cast<int>(std::size(kChipSprites));
 
+// Спрайты бустеров — тоже общие для всех уровней, грузятся один раз.
+// Индекс в массиве совпадает со значением enum BoosterType (объявлен ниже),
+// поэтому 0-й элемент (None) не используется и оставлен пустым.
+inline constexpr const char* kBoosterSprites[] = {
+    "",                                     // None — не используется
+    "assets/booster_rocket_60.png",         // Line     — линия/ракета
+    "assets/booster_rainbow_ball_60.png",   // Rainbow  — радужный шар
+    "assets/booster_bomb_60.png",           // Bomb     — бомба
+    "assets/booster_plane_60.png",          // Airplane — самолётик
+};
+
+inline constexpr int kBoosterSpriteCount = static_cast<int>(std::size(kBoosterSprites));
+
 // Фон игрового поля; пустая строка — подложку рисует Renderer.
 inline constexpr const char* kBackgroundSprite = "";
 

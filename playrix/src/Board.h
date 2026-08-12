@@ -10,6 +10,11 @@ namespace m3 {
 
 constexpr int kEmpty = -1;
 
+// Цвет клетки, занятой бустером. Отличен от любого настоящего цвета
+// (0..colors_-1) и от kEmpty, поэтому такая клетка никогда не совпадёт
+// по цвету с соседями и не попадёт в обычный матч — бустер не «цветной».
+constexpr int kBoosted = -2;
+
 struct Cell {
     int r = 0;
     int c = 0;
@@ -47,6 +52,16 @@ public:
     bool inside(int r, int c) const { return r >= 0 && r < rows_ && c >= 0 && c < cols_; }
     int  at(int r, int c) const { return cells_[index(r, c)]; }
     void set(int r, int c, int value) { cells_[index(r, c)] = value; }
+
+    // Тип бустера, лежащего в клетке (None — обычная фишка без бустера).
+    cfg::BoosterType boosterAt(int r, int c) const { return boosters_[index(r, c)]; }
+
+    // Помечает клетку бустером и стирает её цвет (kBoosted), чтобы дальше
+    // клетка никогда не подхватилась обычным цветовым матчем.
+    void setBooster(int r, int c, cfg::BoosterType type) {
+        boosters_[index(r, c)] = type;
+        if (type != cfg::BoosterType::None) cells_[index(r, c)] = kBoosted;
+    }
 
     // Случайная раскладка без готовых матчей и гарантированно с ходом.
     void reset();
@@ -92,6 +107,9 @@ private:
     int              cols_;
     int              colors_;
     std::vector<int> cells_; // внутри лежит номер цвета фишки или kEmpty, если клетка пуста
+    // Тип бустера в клетке, параллельно cells_. Двигается вместе с фишкой
+    // при свапе и падении; None для клеток без бустера.
+    std::vector<cfg::BoosterType> boosters_;
     std::mt19937     rng_;
 
 };

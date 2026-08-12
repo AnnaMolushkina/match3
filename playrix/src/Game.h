@@ -59,6 +59,10 @@ private:
     void updateShuffling(float dt);
     void restartLevel();
 
+    // Клетка, в которой должен появиться бустер группы: клетка второго клика
+    // (или первого — если группа не задела вторую), иначе — центр группы.
+    static Cell pickBoosterCell(const MatchGroup& group, bool hasSwap, Cell swapA, Cell swapB);
+
     Board*       board_;
     const Level* level_;  // игра не меняет настройки уровня
     Cell         selected_{};
@@ -68,6 +72,18 @@ private:
     float                 timer_ = 0.0f;  // сколько секунд идёт текущая фаза
     std::vector<Cell>     matches_;       // клетки, которые сейчас растворяются
     std::vector<ChipView> views_;
+
+    // Группы текущего матча вместе с клетками, куда сядут их бустеры —
+    // заполняется в beginRemoving и применяется к полю в finishRemoving,
+    // когда эффект растворения уже доигран.
+    std::vector<MatchGroup> matchGroups_;
+    std::vector<Cell>       boosterTargets_;  // parallel to matchGroups_
+
+    // Клетки свапа, инициировавшего текущий матч — нужны, чтобы посадить
+    // бустер именно в клетку второго клика. Живут ровно один вызов beginRemoving.
+    Cell pendingSwapA_{};
+    Cell pendingSwapB_{};
+    bool hasPendingSwap_ = false;
 
     // Откуда прилетела фишка, лежащая теперь в клетке i, — заполняется на
     // время перетасовки, чтобы знать, какой путь ей осталось пролететь.

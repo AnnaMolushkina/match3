@@ -37,6 +37,9 @@ void Game::reset() {
     timer_        = 0.0f;
     matches_.clear();
     shuffleFrom_.clear();
+    matchGroups_.clear();
+    boosterTargets_.clear();
+    hasPendingSwap_ = false;
     views_.assign(views_.size(), ChipView{});
 }
 
@@ -95,6 +98,11 @@ bool Game::trySwap(Cell a, Cell b) {
         board_->swapCells(a, b);
         return false;
     }
+    // b — клетка второго клика: именно туда игрок передвинул фишку с a.
+    // Если матч, рождённый этим свапом, даёт бустер, тот должен появиться там.
+    pendingSwapA_   = a;
+    pendingSwapB_   = b;
+    hasPendingSwap_ = true;
     beginRemoving();
     return true;
 }
@@ -111,12 +119,41 @@ void Game::update(float dt) {
     }
 }
 
+// Клетка, где родится бустер группы. Приоритет — клетка второго клика (то
+// место, куда игрок передвинул фишку с первого клика); если группа её не
+// содержит, пробуем клетку первого клика; иначе (каскад без свапа) берём
+// геометрический «центр» группы — просто чтобы бустер не сидел на самом краю.
+Cell Game::pickBoosterCell(const MatchGroup& group, bool hasSwap, Cell swapA, Cell swapB) {
+    if (hasSwap) {
+        for (const Cell& cell : group.cells) {
+            if (cell == swapB) return cell;
+        }
+        for (const Cell& cell : group.cells) {
+            if (cell == swapA) return cell;
+        }
+    }
+
+    std::vector<Cell> sorted = group.cells;
+    std::sort(sorted.begin(), sorted.end(), [](const Cell& a, const Cell& b) {
+        return a.r != b.r ? a.r < b.r : a.c < b.c;
+    });
+    return sorted[sorted.size() / 2];
+}
+
 // Собран матч (ручной или каскадный) — запоминаем его клетки и начинаем
 // растворение. Поле в Board пока не тронуто: фишки ещё нужно показать.
 void Game::beginRemoving() {
+    // pendingSwap* живёт ровно один вызов: даже если матчей не найдётся или
+    // это окажется не тот вызов, что сразу после свапа, флаг не должен
+    // просочиться в следующий каскад.
+    const bool hasSwap = hasPendingSwap_;
+    const Cell swapA   = pendingSwapA_;
+    const Cell swapB   = pendingSwapB_;
+    hasPendingSwap_    = false;
+
     // Собираем все матчи, группируем их по связности, классифицируем каждую группу
     const std::vector<MatchGroup> groups = board_->collectMatchGroups();
-    
+
     // Если после очистки и гравитации нет новых матчей, groups будет пуста
     if (groups.empty()) {
         // Поле успокоилось — только теперь можно смотреть на цель. Перезапускать
@@ -136,10 +173,16 @@ void Game::beginRemoving() {
         return;
     }
 
-    // Собираем все замэтченные клетки в один вектор и логируем каждый бустер
+    // Собираем все замэтченные клетки в один вектор, логируем каждый бустер
+    // и заранее решаем, в какой клетке каждый из них появится.
+    matchGroups_ = groups;
+    boosterTargets_.assign(groups.size(), Cell{});
+
     std::vector<Cell> allCells;
-    for (const MatchGroup& group : groups) {
+    for (size_t i = 0; i < groups.size(); ++i) {
+        const MatchGroup& group = groups[i];
         if (group.booster != cfg::BoosterType::None) {
+            boosterTargets_[i] = pickBoosterCell(group, hasSwap, swapA, swapB);
             std::printf("[Матч] %s (%zu фишек)\n", boosterName(group.booster), group.cells.size());
         }
         for (const Cell& cell : group.cells) {
@@ -166,15 +209,46 @@ void Game::updateRemoving(float dt) {
 }
 
 void Game::finishRemoving() {
+    // Клетки, где вместо удаления рождается бустер: фишка там остаётся на
+    // месте, просто «одевается» в бустер — её не чистим и не засчитываем
+    // в цель, как обычную снятую фишку.
+    std::vector<Cell> boosterCells;
+    for (size_t i = 0; i < matchGroups_.size(); ++i) {
+        if (matchGroups_[i].booster != cfg::BoosterType::None) {
+            boosterCells.push_back(boosterTargets_[i]);
+        }
+    }
+    auto isBoosterCell = [&](const Cell& cell) {
+        for (const Cell& b : boosterCells) {
+            if (b == cell) return true;
+        }
+        return false;
+    };
+
     // Считаем цель до clear: цвета фишек ещё на поле. В зачёт идут и каскадные
     // матчи — они разбираются этим же кодом.
+    std::vector<Cell> toClear;
+    toClear.reserve(matches_.size());
     for (const Cell& cell : matches_) {
+        if (isBoosterCell(cell)) continue;  // эта фишка не снимается — она стала бустером
         if (board_->at(cell.r, cell.c) == level_->goalColor) ++collected_;
+        toClear.push_back(cell);
     }
 
-    board_->clear(matches_);
+    board_->clear(toClear);
+
+    // Бустер отображается сразу после матча — до того, как поле подчинится
+    // гравитации; сама фишка-носитель дальше падает как обычная.
+    for (size_t i = 0; i < matchGroups_.size(); ++i) {
+        if (matchGroups_[i].booster == cfg::BoosterType::None) continue;
+        const Cell& cell = boosterTargets_[i];
+        board_->setBooster(cell.r, cell.c, matchGroups_[i].booster);
+    }
+
     const std::vector<FallMove> moves = board_->applyGravity();
     matches_.clear();
+    matchGroups_.clear();
+    boosterTargets_.clear();
 
     // Гравитация заняла все опустевшие клетки, так что прозрачных фишек
     // больше нет: сбрасываем визуальное состояние поля целиком.
