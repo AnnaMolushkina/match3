@@ -17,6 +17,20 @@ int Board::pickColor() {
     return dist(rng_);
 }
 
+bool Board::randomCellOfColor(int color, Cell& out) {
+    std::vector<Cell> candidates;
+    for (int r = 0; r < rows_; ++r) {
+        for (int c = 0; c < cols_; ++c) {
+            if (at(r, c) == color) candidates.push_back({r, c});
+        }
+    }
+    if (candidates.empty()) return false;
+
+    std::uniform_int_distribution<size_t> dist(0, candidates.size() - 1);
+    out = candidates[dist(rng_)];
+    return true;
+}
+
 // Случайная раскладка без готовых матчей и гарантированно с ходом.
 void Board::reset() {
     // Свежая раскладка — бустеров на поле ещё нет.

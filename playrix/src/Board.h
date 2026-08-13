@@ -90,6 +90,16 @@ public:
     // Собрать все матчи, разбить на связные группы и классифицировать каждую
     std::vector<MatchGroup> collectMatchGroups() const;
 
+    // ---- случайность для эффектов бустеров (тот же генератор, что и раскладка) ----
+
+    // Случайный цвет из палитры уровня — рэйнбоу без пары использует его,
+    // чтобы выбрать, какой цвет снести с поля.
+    int randomColor() { return pickColor(); }
+
+    // Случайная клетка с фишкой данного цвета; false, если такой на поле нет —
+    // самолётик так находит цель нужного для победы цвета.
+    bool randomCellOfColor(int color, Cell& out);
+
 private:
     int  pickColor();
     bool matchesRunFrom(int r, int c, int dr, int dc) const;

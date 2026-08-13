@@ -40,7 +40,6 @@ void Game::reset() {
     shuffleFrom_.clear();
     matchGroups_.clear();
     boosterTargets_.clear();
-    hasPendingSwap_ = false;
     views_.assign(views_.size(), ChipView{});
 }
 
@@ -78,9 +77,19 @@ void Game::onClick(int x, int y) {
         hasSelection_ = true;
         return;
     }
-    // Повторный клик по той же фишке снимает выбор.
+    // Повторный клик по той же фишке снимает выбор — или, если это бустер,
+    // активирует его на месте (без свапа, без клетки-партнёра).
     if (cell == selected_) {
         hasSelection_ = false;
+        const cfg::BoosterType booster = board_->boosterAt(cell.r, cell.c);
+        if (booster != cfg::BoosterType::None) {
+            std::vector<Cell> blast;
+            appendBoosterBlast(blast, cell, booster, nullptr);
+            std::printf("[Бустер] %s активирован кликом (%zu клеток)\n", boosterName(booster),
+                        blast.size());
+            blast = resolveBoosterChain(std::move(blast), {cell});
+            startRemoving(std::move(blast), /*hasSwap=*/false, Cell{}, Cell{});
+        }
         return;
     }
     // Клик по не-соседней клетке: по условию ничего не происходит,
@@ -91,9 +100,45 @@ void Game::onClick(int x, int y) {
     hasSelection_ = false;
 }
 
-// Обмен засчитывается, только если он собирает матч; иначе поле
-// возвращается в исходное состояние и ход считается несостоявшимся.
+// Обмен засчитывается, только если он собирает матч или затрагивает бустер;
+// иначе поле возвращается в исходное состояние и ход считается несостоявшимся.
 bool Game::trySwap(Cell a, Cell b) {
+    // Запоминаем ДО свапа: после него уже не отличить, кто где был.
+    const cfg::BoosterType boosterA = board_->boosterAt(a.r, a.c);
+    const cfg::BoosterType boosterB = board_->boosterAt(b.r, b.c);
+
+    if (boosterA != cfg::BoosterType::None || boosterB != cfg::BoosterType::None) {
+        // Свап с бустером — это способ его активировать, а не обычный
+        // цветовой матч, поэтому он всегда засчитывается. swapCells меняет
+        // местами содержимое клеток целиком, так что бустер, лежавший в a,
+        // после свапа окажется в b (и наоборот) — берём итоговое положение.
+        board_->swapCells(a, b);
+
+        std::vector<Cell> blast;
+        std::vector<Cell> roots;  // уже сработавшие бустеры — цепочка их не трогает повторно
+        if (boosterA != cfg::BoosterType::None) {
+            appendBoosterBlast(blast, b, boosterA, &a);
+            roots.push_back(b);
+            std::printf("[Бустер] %s активирован свапом (%zu клеток)\n", boosterName(boosterA),
+                        blast.size());
+        }
+        if (boosterB != cfg::BoosterType::None) {
+            appendBoosterBlast(blast, a, boosterB, &b);
+            roots.push_back(a);
+            std::printf("[Бустер] %s активирован свапом (%zu клеток)\n", boosterName(boosterB),
+                        blast.size());
+        }
+        blast = resolveBoosterChain(std::move(blast), roots);
+
+        // Свап не только запускает бустер — он ещё и двигает соседнюю фишку
+        // в клетку бустера. Та фишка могла сама сложиться в обычный матч или
+        // даже в новый бустер: startRemoving разберёт это той же логикой,
+        // что и обычный ход (hasSwap/a/b — на случай, если новый бустер
+        // должен появиться именно в клетке, куда переехала эта фишка).
+        startRemoving(std::move(blast), /*hasSwap=*/true, a, b);
+        return true;
+    }
+
     board_->swapCells(a, b);
     if (!board_->hasAnyMatch()) {
         board_->swapCells(a, b);
@@ -101,10 +146,7 @@ bool Game::trySwap(Cell a, Cell b) {
     }
     // b — клетка второго клика: именно туда игрок передвинул фишку с a.
     // Если матч, рождённый этим свапом, даёт бустер, тот должен появиться там.
-    pendingSwapA_   = a;
-    pendingSwapB_   = b;
-    hasPendingSwap_ = true;
-    beginRemoving();
+    startRemoving({}, /*hasSwap=*/true, a, b);
     return true;
 }
 
@@ -141,22 +183,123 @@ Cell Game::pickBoosterCell(const MatchGroup& group, bool hasSwap, Cell swapA, Ce
     return sorted[sorted.size() / 2];
 }
 
-// Собран матч (ручной или каскадный) — запоминаем его клетки и начинаем
-// растворение. Поле в Board пока не тронуто: фишки ещё нужно показать.
-void Game::beginRemoving() {
-    // pendingSwap* живёт ровно один вызов: даже если матчей не найдётся или
-    // это окажется не тот вызов, что сразу после свапа, флаг не должен
-    // просочиться в следующий каскад.
-    const bool hasSwap = hasPendingSwap_;
-    const Cell swapA   = pendingSwapA_;
-    const Cell swapB   = pendingSwapB_;
-    hasPendingSwap_    = false;
+// Клетки, которые снесёт бустер типа type, лежащий (уже после свапа, если он
+// был) в cell — добавляются в out без дублей. partner — вторая клетка свапа
+// (nullptr при активации двойным кликом): рэйнбоу берёт из неё цвет на снос.
+void Game::appendBoosterBlast(std::vector<Cell>& out, Cell cell, cfg::BoosterType type,
+                               const Cell* partner) const {
+    auto add = [&](Cell c) {
+        for (const Cell& existing : out) {
+            if (existing == c) return;
+        }
+        out.push_back(c);
+    };
 
-    // Собираем все матчи, группируем их по связности, классифицируем каждую группу
+    add(cell);  // бустер снимается вместе с тем, на что он повлиял
+
+    switch (type) {
+        case cfg::BoosterType::RocketHorizontal:  // сносит всю строку
+            for (int c = 0; c < board_->cols(); ++c) add({cell.r, c});
+            break;
+
+        case cfg::BoosterType::RocketVertical:  // сносит весь столбец
+            for (int r = 0; r < board_->rows(); ++r) add({r, cell.c});
+            break;
+
+        case cfg::BoosterType::Bomb:  // квадрат 5x5 вокруг бустера
+            for (int r = cell.r - 2; r <= cell.r + 2; ++r) {
+                for (int c = cell.c - 2; c <= cell.c + 2; ++c) {
+                    if (board_->inside(r, c)) add({r, c});
+                }
+            }
+            break;
+
+        case cfg::BoosterType::Rainbow: {
+            // Со свапом — цвет фишки-партнёра (уже занявшей клетку рэйнбоу
+            // после обмена содержимым). Без свапа (клик), либо если партнёр
+            // сам оказался бустером (цвета < 0 не бывает у обычной фишки) —
+            // случайный цвет: комбинировать два бустера мы пока не умеем.
+            int color = partner ? board_->at(partner->r, partner->c) : -1;
+            if (color < 0) color = board_->randomColor();
+            for (int r = 0; r < board_->rows(); ++r) {
+                for (int c = 0; c < board_->cols(); ++c) {
+                    if (board_->at(r, c) == color) add({r, c});
+                }
+            }
+            break;
+        }
+
+        case cfg::BoosterType::Airplane: {
+            // 4 соседа по сторонам — как и все остальные клетки взрыва, могут
+            // содержать бустер, и тогда за них возьмётся resolveBoosterChain.
+            const Cell neighbours[4] = {
+                {cell.r - 1, cell.c},
+                {cell.r + 1, cell.c},
+                {cell.r, cell.c - 1},
+                {cell.r, cell.c + 1},
+            };
+            for (const Cell& n : neighbours) {
+                if (board_->inside(n.r, n.c)) add(n);
+            }
+
+            // "Умно" здесь — случайная фишка того цвета, что нужен для цели.
+            Cell target;
+            if (board_->randomCellOfColor(level_->goalColor, target)) add(target);
+            break;
+        }
+
+        case cfg::BoosterType::None:
+            break;
+    }
+}
+
+// Разворачивает цепочку срабатываний бустеров. cells — уже посчитанная
+// область поражения того бустера(ов), что сработал от клика/свапа; roots —
+// его клетки, их не активируем повторно. Каждый ДРУГОЙ бустер, попавший в
+// область поражения, срабатывает так же, как двойным кликом (без партнёра
+// свапа — ракета/бомба бьют по своему месту, шар/самолётик выбирают
+// случайно), и его область тоже добавляется в снос и проверяется на новые
+// бустеры. Бустеры на доске конечны, и каждый обрабатывается не больше
+// одного раза, так что цепочка гарантированно затухает.
+std::vector<Cell> Game::resolveBoosterChain(std::vector<Cell> cells, const std::vector<Cell>& roots) const {
+    auto contains = [](const std::vector<Cell>& v, Cell c) {
+        for (const Cell& e : v) {
+            if (e == c) return true;
+        }
+        return false;
+    };
+
+    std::vector<Cell> triggered = roots;
+    for (size_t i = 0; i < cells.size(); ++i) {
+        const Cell             cell    = cells[i];
+        const cfg::BoosterType booster = board_->boosterAt(cell.r, cell.c);
+        if (booster == cfg::BoosterType::None) continue;
+        if (contains(triggered, cell)) continue;
+        triggered.push_back(cell);
+
+        std::vector<Cell> chainBlast;
+        appendBoosterBlast(chainBlast, cell, booster, nullptr);
+        std::printf("[Бустер] %s активирован цепочкой (%zu клеток)\n", boosterName(booster),
+                    chainBlast.size());
+
+        for (const Cell& c : chainBlast) {
+            if (!contains(cells, c)) cells.push_back(c);  // новая клетка — тоже под проверку
+        }
+    }
+    return cells;
+}
+
+// Общее ядро для обычного хода/каскада и активации бустера. extraCells —
+// то, что нужно снести сверх обычных цветовых матчей: пусто для обычного
+// случая, область поражения бустера(ов) — при клике/свапе по бустеру. Матчи
+// ищутся всегда: свап, двигающий бустер, мог заодно подвинуть соседнюю фишку
+// в новую комбинацию — обычную тройку или даже новый бустер, — и её нужно
+// разобрать той же логикой, что и обычный ход.
+void Game::startRemoving(std::vector<Cell> extraCells, bool hasSwap, Cell swapA, Cell swapB) {
     const std::vector<MatchGroup> groups = board_->collectMatchGroups();
 
-    // Если после очистки и гравитации нет новых матчей, groups будет пуста
-    if (groups.empty()) {
+    // Ни обычных матчей, ни взрыва бустера — ходу не за что зацепиться.
+    if (groups.empty() && extraCells.empty()) {
         // Поле успокоилось — только теперь можно смотреть на цель. Перезапускать
         // уровень посреди каскада нельзя: фишки ещё летят, и игрок не увидел бы,
         // чем закончился его ход.
@@ -174,27 +317,38 @@ void Game::beginRemoving() {
         return;
     }
 
-    // Собираем все замэтченные клетки в один вектор, логируем каждый бустер
-    // и заранее решаем, в какой клетке каждый из них появится.
+    // Собираем все замэтченные клетки в один вектор поверх extraCells,
+    // логируем каждый новый бустер и заранее решаем, в какой клетке он появится.
     matchGroups_ = groups;
     boosterTargets_.assign(groups.size(), Cell{});
 
-    std::vector<Cell> allCells;
+    std::vector<Cell> allCells = std::move(extraCells);
+    auto              addCell  = [&](Cell c) {
+        for (const Cell& existing : allCells) {
+            if (existing == c) return;
+        }
+        allCells.push_back(c);
+    };
+
     for (size_t i = 0; i < groups.size(); ++i) {
         const MatchGroup& group = groups[i];
         if (group.booster != cfg::BoosterType::None) {
             boosterTargets_[i] = pickBoosterCell(group, hasSwap, swapA, swapB);
             std::printf("[Матч] %s (%zu фишек)\n", boosterName(group.booster), group.cells.size());
         }
-        for (const Cell& cell : group.cells) {
-            allCells.push_back(cell);
-        }
+        for (const Cell& cell : group.cells) addCell(cell);
     }
 
     // Сохраняем в matches_ для визуализации отдельных фишек во время Removing фазы
-    matches_ = allCells;
-    phase_ = Phase::Removing;
-    timer_ = 0.0f;
+    matches_ = std::move(allCells);
+    phase_   = Phase::Removing;
+    timer_   = 0.0f;
+}
+
+// Начинает разбор каскада: поле уже осело после гравитации, свежих матчей
+// (если есть) искать не от какого свапа — cascade сам по себе, без клика игрока.
+void Game::beginRemoving() {
+    startRemoving({}, /*hasSwap=*/false, Cell{}, Cell{});
 }
 
 void Game::updateRemoving(float dt) {
