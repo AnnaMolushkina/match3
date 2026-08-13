@@ -78,6 +78,10 @@ public:
 
     bool hasValidMove() const;
 
+    // Есть ли на поле хотя бы один бустер — его всегда можно активировать,
+    // так что это тоже ход, даже если hasValidMove() не нашла обычного свапа.
+    bool hasAnyBooster() const;
+
     // Перетасовывает уже лежащие на поле фишки. Возвращает перестановку:
     // result[newIndex] == oldIndex, чтобы визуальный слой знал, что куда летит.
     std::vector<int> shuffle();
@@ -105,6 +109,10 @@ private:
 
     // Есть ли цельный 2x2 квадрат одного цвета с левым верхним углом в (r, c).
     bool hasSquareAt(int r, int c) const;
+
+    // Образует ли ещё не поставленный candidate 2x2 квадрат с соседями слева сверху?
+    // (r, c) здесь — нижний правый угол гипотетического квадрата
+    bool wouldCompleteSquare(int r, int c, int candidate) const;
 
     // Проверить, содержит ли группа клеток цельный 2x2 квадрат
     bool containsSquare(const std::vector<Cell>& cells) const;

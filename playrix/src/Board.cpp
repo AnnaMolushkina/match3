@@ -59,16 +59,10 @@ void Board::reset() {
                     // Проверка на линейные матчи (3+ в ряд)
                     if (c >= 2 && at(r, c - 1) == color && at(r, c - 2) == color) continue;
                     if (r >= 2 && at(r - 1, c) == color && at(r - 2, c) == color) continue;
-                    
+
                     // Проверка на 2x2 квадрат (самолетик)
-                    // (r, c) будет нижним-правым углом, остальные три уже заполнены
-                    if (r >= 1 && c >= 1 && 
-                        at(r - 1, c - 1) == color && 
-                        at(r - 1, c) == color && 
-                        at(r, c - 1) == color) {
-                        continue;
-                    }
-                    
+                    if (wouldCompleteSquare(r, c, color)) continue;
+
                     candidates.push_back(color);
                 }
                 std::uniform_int_distribution<size_t> dist(0, candidates.size() - 1);
@@ -98,6 +92,15 @@ bool Board::hasSquareAt(int r, int c) const {
     const int color = at(r, c);
     if (color < 0) return false;  // пусто или бустер — угла квадрата тут быть не может
     return at(r, c + 1) == color && at(r + 1, c) == color && at(r + 1, c + 1) == color;
+}
+
+// Образует ли ещё не поставленный candidate 2x2 квадрат с соседями,
+// уже стоящими сверху и слева от (r, c)
+bool Board::wouldCompleteSquare(int r, int c, int candidate) const {
+    return r >= 1 && c >= 1 &&
+           at(r - 1, c - 1) == candidate &&
+           at(r - 1, c) == candidate &&
+           at(r, c - 1) == candidate;
 }
 
 // Один проход по полю: для каждой клетки проверяем и линии, и квадрат
@@ -222,6 +225,13 @@ bool Board::hasValidMove() const {
                 probe.swapCells({r, c}, {r + 1, c});
             }
         }
+    }
+    return false;
+}
+
+bool Board::hasAnyBooster() const {
+    for (const cfg::BoosterType type : boosters_) {
+        if (type != cfg::BoosterType::None) return true;
     }
     return false;
 }

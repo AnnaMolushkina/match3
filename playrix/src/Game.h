@@ -1,21 +1,15 @@
 #pragma once
 
+#include <optional>
 #include <vector>
 
 #include "Board.h"
+#include "BoosterChain.h"
+#include "BoosterCombo.h"
 #include "ChipView.h"
 #include "Level.h"
 
 namespace m3 {
-
-//Partner задан только для бустеров, активированных свапом. Шар берёт из партнера цвет;
-// у бустеров, найденных по цепочке, партнёра нет (как при активации кликом).
-struct QueuedBooster {
-    Cell             cell;
-    cfg::BoosterType type       = cfg::BoosterType::None;
-    bool             hasPartner = false;
-    Cell             partner{};
-};
 
 class Game {
 public:
@@ -62,6 +56,9 @@ private:
     static bool neighbour(Cell a, Cell b);
     bool        trySwap(Cell a, Cell b);
 
+    // ---- основной конвейер хода: свап/каскад → матч → удаление → гравитация ----
+    // (Game.cpp)
+
     void beginRemoving();
     void finishRemoving();
     void updateRemoving(float dt);
@@ -78,11 +75,20 @@ private:
     void updateShuffling(float dt);
     void restartLevel();
 
+    // Клетка, в которой должен появиться НОВЫЙ бустер, родившийся из матча
+    // (не путать с активацией уже стоящего на поле — см. ниже).
+    static Cell pickBoosterCell(const MatchGroup& group, bool hasSwap, Cell swapA, Cell swapB);
+
+    // Общее ядро для beginRemoving и активации бустеров: extraCells — то, что
+    // нужно удалить помимо обычных цветовых матчей (пусто для обычного хода и
+    // каскада; область поражения бустера(ов) — для клика/свапа по бустеру).
+    void startRemoving(std::vector<Cell> extraCells, bool hasSwap, Cell swapA, Cell swapB);
+
+    // ---- активация уже стоящих на поле бустеров: очередь и волны срабатывания ----
+    // (BoosterChain.cpp; типы — в BoosterChain.h)
+
     // Для удаления соседних фишек самолётика посреди Phase::Boosting
     void resolveImmediate(const std::vector<Cell>& cells);
-
-    // Клетка, в которой должен появиться бустер группы
-    static Cell pickBoosterCell(const MatchGroup& group, bool hasSwap, Cell swapA, Cell swapB);
 
     // Добавляет в out клетки, которые удалит бустер вместе с собой
     void appendBoosterBlast(std::vector<Cell>& out, std::vector<Cell>& immediate,
@@ -96,10 +102,11 @@ private:
     void advanceBoosterChain();
     void updateBoosting(float dt);
 
-    // Общее ядро для beginRemoving и активации бустеров: extraCells — то, что
-    // нужно удалить помимо обычных цветовых матчей (пусто для обычного хода и
-    // каскада; область поражения бустера(ов) — для клика/свапа по бустеру).
-    void startRemoving(std::vector<Cell> extraCells, bool hasSwap, Cell swapA, Cell swapB);
+    // ---- комбинации двух бустеров, свапнутых друг с другом ----
+    // (BoosterCombo.cpp; типы — в BoosterCombo.h)
+
+    // at — клетка второго клика
+    std::optional<BoosterCombo> tryBoosterCombo(cfg::BoosterType a, cfg::BoosterType b, Cell at) const;
 
     Board*       board_;
     const Level* level_;  // игра не меняет настройки уровня
