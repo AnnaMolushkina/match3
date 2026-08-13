@@ -33,6 +33,10 @@ public:
     void drawBoard(const Board& board, const std::vector<ChipView>& views,
                    const Cell* selected = nullptr);
 
+    // Летящие спрайты бустеров (Game::flights()) поверх уже нарисованного
+    // поля; progress (Game::flightProgress(), 0..1) — как далеко они долетели.
+    void drawBoosterFlights(const std::vector<BoosterFlight>& flights, float progress);
+
 private:
     void fill(int x, int y, int w, int h, cfg::Rgb color, Uint8 alpha = 255);
     void frame(int x, int y, int w, int h, int thickness, cfg::Rgb color);

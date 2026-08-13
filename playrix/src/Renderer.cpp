@@ -126,6 +126,32 @@ void Renderer::drawBoard(const Board& board, const std::vector<ChipView>& views,
     SDL_RenderSetClipRect(sdl_, nullptr);
 }
 
+// Летящие спрайты бустеров — самолётик к своей цели, пара ракет к краям
+// строки/столбца. Рисуются поверх уже готового поля; сама доска под ними в
+// это время ещё выглядит как раньше (Game прячет её только после долёта).
+void Renderer::drawBoosterFlights(const std::vector<BoosterFlight>& flights, float progress) {
+    if (flights.empty()) return;
+
+    const SDL_Rect clip{level_->boardX(), level_->boardY(), level_->boardW(), level_->boardH()};
+    SDL_RenderSetClipRect(sdl_, &clip);
+
+    for (const BoosterFlight& f : flights) {
+        SDL_Texture* texture = textures_->booster(f.type);
+        if (!texture) continue;
+
+        const float row = f.fromRow + (f.toRow - f.fromRow) * progress;
+        const float col = f.fromCol + (f.toCol - f.fromCol) * progress;
+
+        SDL_SetTextureAlphaMod(texture, 255);
+        SDL_Rect dst{level_->boardX() + static_cast<int>(std::lround(col * level_->tile)),
+                     level_->boardY() + static_cast<int>(std::lround(row * level_->tile)),
+                     level_->tile, level_->tile};
+        SDL_RenderCopyEx(sdl_, texture, nullptr, &dst, boosterAngle(f.type), nullptr, SDL_FLIP_NONE);
+    }
+
+    SDL_RenderSetClipRect(sdl_, nullptr);
+}
+
 // Цель уровня: фишка нужного цвета по центру полосы слева от поля, а поверх
 // неё в правом нижнем углу — сколько таких фишек ещё осталось собрать.
 void Renderer::drawGoal(int remaining) {

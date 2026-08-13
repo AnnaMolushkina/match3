@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Config.h"
+
 namespace m3 {
 
 // Визуальное состояние одной фишки — всё, чем картинка отличается от
@@ -19,6 +21,19 @@ struct ChipView {
 
     // 1 — фишка видна полностью, 0 — растворилась без остатка.
     float alpha = 1.0f;
+};
+
+// Летящий спрайт бустера поверх поля — самолётик, летящий к своей цели, или
+// одна из пары ракет, летящих к краю поля. Живёт только во время короткой
+// фазы Phase::Boosting перед обычным затуханием снесённых клеток; from/to —
+// координаты клеток (не пиксели), Renderer сам считает текущее положение по
+// прогрессу полёта.
+struct BoosterFlight {
+    cfg::BoosterType type    = cfg::BoosterType::None;
+    float            fromRow = 0.0f;
+    float            fromCol = 0.0f;
+    float            toRow   = 0.0f;
+    float            toCol   = 0.0f;
 };
 
 }  // namespace m3

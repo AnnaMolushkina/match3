@@ -96,9 +96,10 @@ public:
     // чтобы выбрать, какой цвет снести с поля.
     int randomColor() { return pickColor(); }
 
-    // Случайная клетка с фишкой данного цвета; false, если такой на поле нет —
-    // самолётик так находит цель нужного для победы цвета.
-    bool randomCellOfColor(int color, Cell& out);
+    // Случайная клетка с фишкой данного цвета, кроме перечисленных в exclude;
+    // false, если подходящей нет — самолётик так находит цель нужного для
+    // победы цвета, не считая клеток, куда ему лететь нельзя (свои соседи).
+    bool randomCellOfColor(int color, const std::vector<Cell>& exclude, Cell& out);
 
 private:
     int  pickColor();

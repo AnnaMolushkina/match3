@@ -17,11 +17,19 @@ int Board::pickColor() {
     return dist(rng_);
 }
 
-bool Board::randomCellOfColor(int color, Cell& out) {
+bool Board::randomCellOfColor(int color, const std::vector<Cell>& exclude, Cell& out) {
     std::vector<Cell> candidates;
     for (int r = 0; r < rows_; ++r) {
         for (int c = 0; c < cols_; ++c) {
-            if (at(r, c) == color) candidates.push_back({r, c});
+            if (at(r, c) != color) continue;
+            bool excluded = false;
+            for (const Cell& e : exclude) {
+                if (e.r == r && e.c == c) {
+                    excluded = true;
+                    break;
+                }
+            }
+            if (!excluded) candidates.push_back({r, c});
         }
     }
     if (candidates.empty()) return false;

@@ -40,6 +40,11 @@ void Game::reset() {
     shuffleFrom_.clear();
     matchGroups_.clear();
     boosterTargets_.clear();
+    flights_.clear();
+    boostTimer_ = 0.0f;
+    boosterQueue_.clear();
+    chainTriggered_.clear();
+    chainBlast_.clear();
     views_.assign(views_.size(), ChipView{});
 }
 
@@ -83,12 +88,8 @@ void Game::onClick(int x, int y) {
         hasSelection_ = false;
         const cfg::BoosterType booster = board_->boosterAt(cell.r, cell.c);
         if (booster != cfg::BoosterType::None) {
-            std::vector<Cell> blast;
-            appendBoosterBlast(blast, cell, booster, nullptr);
-            std::printf("[Бустер] %s активирован кликом (%zu клеток)\n", boosterName(booster),
-                        blast.size());
-            blast = resolveBoosterChain(std::move(blast), {cell});
-            startRemoving(std::move(blast), /*hasSwap=*/false, Cell{}, Cell{});
+            beginBoosterChain({QueuedBooster{cell, booster, false, Cell{}}}, /*hasSwap=*/false, Cell{},
+                               Cell{});
         }
         return;
     }
@@ -114,28 +115,19 @@ bool Game::trySwap(Cell a, Cell b) {
         // после свапа окажется в b (и наоборот) — берём итоговое положение.
         board_->swapCells(a, b);
 
-        std::vector<Cell> blast;
-        std::vector<Cell> roots;  // уже сработавшие бустеры — цепочка их не трогает повторно
-        if (boosterA != cfg::BoosterType::None) {
-            appendBoosterBlast(blast, b, boosterA, &a);
-            roots.push_back(b);
-            std::printf("[Бустер] %s активирован свапом (%zu клеток)\n", boosterName(boosterA),
-                        blast.size());
-        }
-        if (boosterB != cfg::BoosterType::None) {
-            appendBoosterBlast(blast, a, boosterB, &b);
-            roots.push_back(a);
-            std::printf("[Бустер] %s активирован свапом (%zu клеток)\n", boosterName(boosterB),
-                        blast.size());
-        }
-        blast = resolveBoosterChain(std::move(blast), roots);
+        // Бустер, лежавший в a, после свапа оказался в b (и наоборот) —
+        // партнёром для рэйнбоу служит другая клетка свапа. Оба обработаются
+        // строго по очереди: beginBoosterChain не запускает их параллельно.
+        std::vector<QueuedBooster> initial;
+        if (boosterA != cfg::BoosterType::None) initial.push_back(QueuedBooster{b, boosterA, true, a});
+        if (boosterB != cfg::BoosterType::None) initial.push_back(QueuedBooster{a, boosterB, true, b});
 
         // Свап не только запускает бустер — он ещё и двигает соседнюю фишку
         // в клетку бустера. Та фишка могла сама сложиться в обычный матч или
-        // даже в новый бустер: startRemoving разберёт это той же логикой,
-        // что и обычный ход (hasSwap/a/b — на случай, если новый бустер
-        // должен появиться именно в клетке, куда переехала эта фишка).
-        startRemoving(std::move(blast), /*hasSwap=*/true, a, b);
+        // даже в новый бустер: startRemoving (в конце цепочки) разберёт это
+        // той же логикой, что и обычный ход (hasSwap/a/b — на случай, если
+        // новый бустер должен появиться именно в клетке, куда переехала фишка).
+        beginBoosterChain(std::move(initial), /*hasSwap=*/true, a, b);
         return true;
     }
 
@@ -153,10 +145,17 @@ bool Game::trySwap(Cell a, Cell b) {
 void Game::update(float dt) {
     if (dt <= 0.0f) return;
 
-    if (phase_ == Phase::Removing) {
+    // Гравитация общая и безусловная: соседи самолётика могут опадать прямо
+    // посреди Phase::Boosting, пока сам он ещё летит к цели (см.
+    // resolveImmediate) — это не привязано к тому, в какой фазе сейчас игра.
+    stepGravity(dt);
+
+    if (phase_ == Phase::Boosting) {
+        updateBoosting(dt);
+    } else if (phase_ == Phase::Removing) {
         updateRemoving(dt);
     } else if (phase_ == Phase::Falling) {
-        updateFalling(dt);
+        updateFalling();
     } else if (phase_ == Phase::Shuffling) {
         updateShuffling(dt);
     }
@@ -184,9 +183,13 @@ Cell Game::pickBoosterCell(const MatchGroup& group, bool hasSwap, Cell swapA, Ce
 }
 
 // Клетки, которые снесёт бустер типа type, лежащий (уже после свапа, если он
-// был) в cell — добавляются в out без дублей. partner — вторая клетка свапа
-// (nullptr при активации двойным кликом): рэйнбоу берёт из неё цвет на снос.
-void Game::appendBoosterBlast(std::vector<Cell>& out, Cell cell, cfg::BoosterType type,
+// был) в cell — добавляются в out без дублей. immediate — подмножество out,
+// которое нужно спрятать сразу, не дожидаясь ничьего полёта (соседи
+// самолётика). Для ракеты/самолётика ещё заполняется flights — описание
+// полёта. partner — вторая клетка свапа (nullptr при активации двойным
+// кликом): рэйнбоу берёт из неё цвет на снос.
+void Game::appendBoosterBlast(std::vector<Cell>& out, std::vector<Cell>& immediate,
+                               std::vector<BoosterFlight>& flights, Cell cell, cfg::BoosterType type,
                                const Cell* partner) const {
     auto add = [&](Cell c) {
         for (const Cell& existing : out) {
@@ -197,13 +200,22 @@ void Game::appendBoosterBlast(std::vector<Cell>& out, Cell cell, cfg::BoosterTyp
 
     add(cell);  // бустер снимается вместе с тем, на что он повлиял
 
+    const auto row = static_cast<float>(cell.r);
+    const auto col = static_cast<float>(cell.c);
+
     switch (type) {
         case cfg::BoosterType::RocketHorizontal:  // сносит всю строку
             for (int c = 0; c < board_->cols(); ++c) add({cell.r, c});
+            // "Дублируется" — две ракеты летят от места активации к обоим
+            // краям строки.
+            flights.push_back({type, row, col, row, 0.0f});
+            flights.push_back({type, row, col, row, static_cast<float>(board_->cols() - 1)});
             break;
 
         case cfg::BoosterType::RocketVertical:  // сносит весь столбец
             for (int r = 0; r < board_->rows(); ++r) add({r, cell.c});
+            flights.push_back({type, row, col, 0.0f, col});
+            flights.push_back({type, row, col, static_cast<float>(board_->rows() - 1), col});
             break;
 
         case cfg::BoosterType::Bomb:  // квадрат 5x5 вокруг бустера
@@ -230,8 +242,21 @@ void Game::appendBoosterBlast(std::vector<Cell>& out, Cell cell, cfg::BoosterTyp
         }
 
         case cfg::BoosterType::Airplane: {
-            // 4 соседа по сторонам — как и все остальные клетки взрыва, могут
-            // содержать бустер, и тогда за них возьмётся resolveBoosterChain.
+            // 4 соседа по сторонам сносятся сразу, не дожидаясь долёта до цели —
+            // как и все остальные клетки взрыва, могут содержать бустер, и тогда
+            // за них возьмётся advanceBoosterChain (тоже сразу, в этой же волне).
+            //
+            // Сам самолётик — тоже immediate, а не только его соседи. Если бы
+            // его клетку сносили отдельно, позже (как обычно для летящих
+            // бустеров), то gravity от немедленного соседа снизу — а сосед
+            // снизу есть почти всегда — физически сдвинула бы ещё не снесённую
+            // клетку самолётика вниз на месте сразу после resolveImmediate, и
+            // все ссылки на неё (скрытие альфы, итоговый снос) стали бы
+            // указывать в опустевшую или вообще чужую клетку — самолётик
+            // оставался бы на поле навсегда. Снося его в том же батче, что и
+            // соседей, получаем один атомарный clear+gravity без этой дыры.
+            immediate.push_back(cell);
+
             const Cell neighbours[4] = {
                 {cell.r - 1, cell.c},
                 {cell.r + 1, cell.c},
@@ -239,54 +264,29 @@ void Game::appendBoosterBlast(std::vector<Cell>& out, Cell cell, cfg::BoosterTyp
                 {cell.r, cell.c + 1},
             };
             for (const Cell& n : neighbours) {
-                if (board_->inside(n.r, n.c)) add(n);
+                if (board_->inside(n.r, n.c)) {
+                    add(n);
+                    immediate.push_back(n);
+                }
             }
 
-            // "Умно" здесь — случайная фишка того цвета, что нужен для цели.
+            // "Умно" здесь — случайная фишка того цвета, что нужен для цели,
+            // но не сам самолётик и не его соседи: тех и так уже сносим —
+            // цель обязана быть где-то дальше на поле.
+            std::vector<Cell> excluded(std::begin(neighbours), std::end(neighbours));
+            excluded.push_back(cell);
             Cell target;
-            if (board_->randomCellOfColor(level_->goalColor, target)) add(target);
+            if (board_->randomCellOfColor(level_->goalColor, excluded, target)) {
+                add(target);
+                flights.push_back(
+                    {type, row, col, static_cast<float>(target.r), static_cast<float>(target.c)});
+            }
             break;
         }
 
         case cfg::BoosterType::None:
             break;
     }
-}
-
-// Разворачивает цепочку срабатываний бустеров. cells — уже посчитанная
-// область поражения того бустера(ов), что сработал от клика/свапа; roots —
-// его клетки, их не активируем повторно. Каждый ДРУГОЙ бустер, попавший в
-// область поражения, срабатывает так же, как двойным кликом (без партнёра
-// свапа — ракета/бомба бьют по своему месту, шар/самолётик выбирают
-// случайно), и его область тоже добавляется в снос и проверяется на новые
-// бустеры. Бустеры на доске конечны, и каждый обрабатывается не больше
-// одного раза, так что цепочка гарантированно затухает.
-std::vector<Cell> Game::resolveBoosterChain(std::vector<Cell> cells, const std::vector<Cell>& roots) const {
-    auto contains = [](const std::vector<Cell>& v, Cell c) {
-        for (const Cell& e : v) {
-            if (e == c) return true;
-        }
-        return false;
-    };
-
-    std::vector<Cell> triggered = roots;
-    for (size_t i = 0; i < cells.size(); ++i) {
-        const Cell             cell    = cells[i];
-        const cfg::BoosterType booster = board_->boosterAt(cell.r, cell.c);
-        if (booster == cfg::BoosterType::None) continue;
-        if (contains(triggered, cell)) continue;
-        triggered.push_back(cell);
-
-        std::vector<Cell> chainBlast;
-        appendBoosterBlast(chainBlast, cell, booster, nullptr);
-        std::printf("[Бустер] %s активирован цепочкой (%zu клеток)\n", boosterName(booster),
-                    chainBlast.size());
-
-        for (const Cell& c : chainBlast) {
-            if (!contains(cells, c)) cells.push_back(c);  // новая клетка — тоже под проверку
-        }
-    }
-    return cells;
 }
 
 // Общее ядро для обычного хода/каскада и активации бустера. extraCells —
@@ -345,6 +345,180 @@ void Game::startRemoving(std::vector<Cell> extraCells, bool hasSwap, Cell swapA,
     timer_   = 0.0f;
 }
 
+// Немедленно снимает cells с поля и запускает гравитацию — в отличие от
+// chainBlast_ (снимается всё сразу одним пайплайном в самом конце цепочки),
+// эти клетки не ждут вообще ничего: ни своего полёта, ни чужого. Обновляет
+// только те views_, которых physически коснулась гравитация — остальные
+// (например, скрытый на время полёта бустер) не трогает.
+void Game::resolveImmediate(const std::vector<Cell>& cells) {
+    if (cells.empty()) return;
+
+    for (const Cell& cell : cells) {
+        if (board_->at(cell.r, cell.c) == level_->goalColor) ++collected_;
+    }
+    board_->clear(cells);
+
+    const std::vector<FallMove> moves = board_->applyGravity();
+    for (const FallMove& move : moves) {
+        ChipView& view = views_[static_cast<size_t>(board_->index(move.toRow, move.col))];
+        view           = ChipView{};  // локальный сброс — только эта клетка, не всё поле
+        // Фишка начинает путь из своей прежней клетки; у заспавненных fromRow
+        // отрицателен, поэтому они стартуют за верхним краем поля.
+        view.offsetY = static_cast<float>((move.fromRow - move.toRow) * level_->tile);
+    }
+}
+
+// Заводит цепочку: очередь — переданные напрямую бустеры, накопленный снос и
+// список сработавших пусты, контекст свапа запоминается для финального
+// startRemoving. Сразу же пытается сдвинуть очередь с места.
+void Game::beginBoosterChain(std::vector<QueuedBooster> initial, bool hasSwap, Cell swapA, Cell swapB) {
+    boosterQueue_ = std::move(initial);
+    chainTriggered_.clear();
+    chainBlast_.clear();
+    chainHasSwap_ = hasSwap;
+    chainSwapA_   = swapA;
+    chainSwapB_   = swapB;
+    advanceBoosterChain();
+}
+
+// Разбирает волны, пока не наткнётся на такую, где хоть у кого-то есть полёт
+// (тогда запускает общий Phase::Boosting на всю волну разом и возвращает
+// управление — updateBoosting позовёт снова после долёта), либо пока волны не
+// кончатся (тогда запускает накопленный снос через startRemoving).
+void Game::advanceBoosterChain() {
+    auto contains = [](const std::vector<Cell>& v, Cell c) {
+        for (const Cell& e : v) {
+            if (e == c) return true;
+        }
+        return false;
+    };
+
+    for (;;) {
+        // Текущая волна — всё, что сейчас в очереди (initial из
+        // beginBoosterChain либо всё, что нашла предыдущая волна). wave растёт
+        // прямо по ходу разбора: бустер, найденный среди immediate-клеток
+        // (сносятся без ожидания), присоединяется к ЭТОЙ ЖЕ волне — ему
+        // незачем ждать общего полёта волны, он и так уже «в деле». А бустер,
+        // найденный среди отложенных клеток, идёт в boosterQueue_ — это уже
+        // следующая волна, ей нужно дождаться долёта этой.
+        std::vector<QueuedBooster> wave = std::move(boosterQueue_);
+        boosterQueue_.clear();
+
+        std::vector<BoosterFlight> waveFlights;
+
+        for (size_t i = 0; i < wave.size(); ++i) {
+            const QueuedBooster next = wave[i];  // копия: wave ниже может вырасти
+            if (contains(chainTriggered_, next.cell)) continue;  // на случай повторной находки
+            chainTriggered_.push_back(next.cell);
+
+            std::vector<Cell>          blast;
+            std::vector<Cell>          immediate;
+            std::vector<BoosterFlight> flights;
+            appendBoosterBlast(blast, immediate, flights, next.cell, next.type,
+                                next.hasPartner ? &next.partner : nullptr);
+            std::printf("[Бустер] %s активирован (%zu клеток)\n", boosterName(next.type), blast.size());
+
+            auto inWave = [&](Cell c) {
+                for (const QueuedBooster& q : wave) {
+                    if (q.cell == c) return true;
+                }
+                return false;
+            };
+
+            // Бустер среди immediate-клеток — сразу в эту же волну: соседей всё
+            // равно вот-вот снесём, ждать нечего, он присоединяется и
+            // обработается в этом же проходе (или полетит вместе с остальными,
+            // если у него есть полёт). Смотрим на доску ДО resolveImmediate —
+            // после неё там уже пусто.
+            for (const Cell& c : immediate) {
+                if (contains(chainTriggered_, c) || inWave(c)) continue;
+                const cfg::BoosterType caught = board_->boosterAt(c.r, c.c);
+                if (caught != cfg::BoosterType::None) {
+                    wave.push_back(QueuedBooster{c, caught, false, Cell{}});
+                }
+            }
+
+            // immediate снимаются и опадают прямо сейчас — не дожидаясь ни
+            // своего полёта, ни тем более чужого; в отложенный chainBlast_ не
+            // идут, там им уже нечего делать.
+            resolveImmediate(immediate);
+
+            // Остальная (отложенная) часть области поражения копится на снос
+            // в самом конце цепочки — бустер внутри неё активируется только
+            // следующей волной, после долёта этой.
+            for (const Cell& c : blast) {
+                bool wasImmediate = false;
+                for (const Cell& ic : immediate) {
+                    if (ic == c) {
+                        wasImmediate = true;
+                        break;
+                    }
+                }
+                if (wasImmediate) continue;  // уже разобрано выше
+
+                if (!contains(chainBlast_, c)) chainBlast_.push_back(c);
+
+                if (contains(chainTriggered_, c)) continue;
+                bool alreadyQueued = false;
+                for (const QueuedBooster& q : boosterQueue_) {
+                    if (q.cell == c) {
+                        alreadyQueued = true;
+                        break;
+                    }
+                }
+                if (alreadyQueued) continue;
+                const cfg::BoosterType caught = board_->boosterAt(c.r, c.c);
+                if (caught != cfg::BoosterType::None) {
+                    boosterQueue_.push_back(QueuedBooster{c, caught, false, Cell{}});
+                }
+            }
+
+            if (!flights.empty()) {
+                // Прячем сам бустер в клетке активации — виден только полёт;
+                // std::min в updateRemoving не даст итоговому затуханию
+                // вернуть клетку обратно в видимость. Но только если клетка
+                // бустера сама не была immediate (как у самолётика) — тогда
+                // resolveImmediate уже унёс её физически с доски, а этот индекс
+                // теперь принадлежит какой-то другой, только что упавшей сюда
+                // фишке, и прятать её было бы ошибкой.
+                bool ownCellWasImmediate = false;
+                for (const Cell& ic : immediate) {
+                    if (ic == next.cell) {
+                        ownCellWasImmediate = true;
+                        break;
+                    }
+                }
+                if (!ownCellWasImmediate) {
+                    views_[static_cast<size_t>(board_->index(next.cell.r, next.cell.c))].alpha = 0.0f;
+                }
+                for (const BoosterFlight& f : flights) waveFlights.push_back(f);
+            }
+            // Бомба и рэйнбоу не летят — уже полностью учтены выше, без паузы.
+        }
+
+        if (!waveFlights.empty()) {
+            flights_    = std::move(waveFlights);
+            boostTimer_ = 0.0f;
+            phase_      = Phase::Boosting;
+            return;  // ждём долёта всей волны — остаток продолжит updateBoosting
+        }
+
+        if (boosterQueue_.empty()) break;  // цепочка выдохлась
+        // Иначе в этой волне никто не летел (только бомбы/рэйнбоу) — она уже
+        // полностью разобрана синхронно, сразу переходим к следующей волне.
+    }
+
+    // Волны кончились — цепочка полностью разобрана.
+    flights_.clear();
+    startRemoving(std::move(chainBlast_), chainHasSwap_, chainSwapA_, chainSwapB_);
+}
+
+void Game::updateBoosting(float dt) {
+    boostTimer_ += dt;
+    if (boostTimer_ < cfg::kBoosterFlightTime) return;
+    advanceBoosterChain();
+}
+
 // Начинает разбор каскада: поле уже осело после гравитации, свежих матчей
 // (если есть) искать не от какого свапа — cascade сам по себе, без клика игрока.
 void Game::beginRemoving() {
@@ -354,10 +528,16 @@ void Game::beginRemoving() {
 void Game::updateRemoving(float dt) {
     timer_ += dt;
 
-    // Линейное затухание от 1 до 0 за kRemoveTime секунд.
+    // Линейное затухание от 1 до 0 за kRemoveTime секунд. std::min — некоторые
+    // клетки (улетевший бустер) уже спрятаны нулевой альфой раньше, во время
+    // Phase::Boosting, и не должны на старте затухания «моргнуть» обратно в
+    // видимость: 1 - 0 в первом кадре иначе перезаписало бы их alpha единицей.
     const float progress = timer_ / cfg::kRemoveTime;
     const float alpha    = (progress >= 1.0f) ? 0.0f : 1.0f - progress;
-    for (const Cell& cell : matches_) views_[board_->index(cell.r, cell.c)].alpha = alpha;
+    for (const Cell& cell : matches_) {
+        ChipView& view = views_[board_->index(cell.r, cell.c)];
+        view.alpha     = std::min(view.alpha, alpha);
+    }
 
     // Опадение трогается только здесь — когда прозрачность дошла до нуля.
     if (progress >= 1.0f) finishRemoving();
@@ -418,12 +598,12 @@ void Game::finishRemoving() {
     phase_ = Phase::Falling;
 }
 
-// Свободное падение: все фишки стартуют одновременно с нулевой скоростью и
-// разгоняются одной гравитацией. Отдельного тайминга нет — поэтому чем дальше
-// фишке лететь, тем позже она приземлится, и опадение выглядит естественно.
-void Game::updateFalling(float dt) {
-    bool moving = false;
-
+// Физика падения — общая для всех фишек с offsetY < 0, откуда бы оно ни
+// взялось: и для обычного Falling после матча, и для немедленного опадения
+// соседей самолётика посреди ещё летящего Phase::Boosting (см.
+// resolveImmediate). Поэтому вызывается из update() каждый кадр безусловно,
+// а не только в фазе Falling.
+void Game::stepGravity(float dt) {
     for (ChipView& view : views_) {
         if (view.offsetY >= 0.0f) continue;  // эта фишка уже на месте
 
@@ -432,8 +612,20 @@ void Game::updateFalling(float dt) {
         if (view.offsetY >= 0.0f) {
             view.offsetY = 0.0f;
             view.speed   = 0.0f;
-        } else {
+        }
+    }
+}
+
+// Свободное падение: все фишки стартуют одновременно с нулевой скоростью и
+// разгоняются одной гравитацией (шаг физики уже сделан в stepGravity, вызванном
+// из update() перед этим). Отдельного тайминга нет — поэтому чем дальше фишке
+// лететь, тем позже она приземлится, и опадение выглядит естественно.
+void Game::updateFalling() {
+    bool moving = false;
+    for (const ChipView& view : views_) {
+        if (view.offsetY < 0.0f) {
             moving = true;
+            break;
         }
     }
 

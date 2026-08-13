@@ -74,6 +74,7 @@ void frame() {
 
     g_app.renderer->clear();
     g_app.renderer->drawBoard(*g_app.board, g_app.game->views(), g_app.game->selected());
+    g_app.renderer->drawBoosterFlights(g_app.game->flights(), g_app.game->flightProgress());
     g_app.renderer->drawGoal(g_app.game->remaining());
     g_app.renderer->present();
 }

@@ -66,6 +66,10 @@ constexpr float kSquashTime  = 0.14f;
 constexpr float kWinDelay    = 1.60f;
 constexpr float kShuffleHold = 0.35f;  // пауза с надписью перед перетасовкой
 
+// Полёт самолётика к цели или пары ракет к краям поля — до того, как начнётся
+// обычное затухание снесённых клеток.
+constexpr float kBoosterFlightTime = 0.45f;
+
 // Потолок для шага кадра: если вкладку свернули, dt накопится за всё время,
 // и без ограничения фишки телепортировались бы одним огромным шагом.
 constexpr float kMaxFrameTime = 0.05f;
@@ -91,7 +95,7 @@ constexpr Rgb kTextColor      = {235, 235, 245};
 // Тень под числом: светлый текст поверх фишки любого цвета остаётся читаемым.
 constexpr Rgb kTextShadow     = {24, 24, 32};
 //constexpr Rgb kProgressBg     = {60, 60, 78};
-constexpr Rgb kProgressFill   = {112, 210, 130};
+//constexpr Rgb kProgressFill   = {112, 210, 130};
 
 // ---- типы бустеров --------------------------------------------------------
 enum class BoosterType {
