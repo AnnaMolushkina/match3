@@ -1,7 +1,6 @@
 #include "Board.h"
 
 #include <algorithm>
-#include <map>
 #include <numeric>
 #include <set>
 #include <unordered_set>
@@ -69,27 +68,23 @@ bool Board::matchesRunFrom(int r, int c, int dr, int dc) const {
            at(r + 2 * dr, c + 2 * dc) == color;
 }
 
+// Есть ли цельный 2x2 квадрат одного цвета с левым верхним углом в (r, c).
+bool Board::hasSquareAt(int r, int c) const {
+    if (r + 1 >= rows_ || c + 1 >= cols_) return false;
+    const int color = at(r, c);
+    if (color < 0) return false;  // пусто или бустер — угла квадрата тут быть не может
+    return at(r, c + 1) == color && at(r + 1, c) == color && at(r + 1, c + 1) == color;
+}
+
+// Один проход по полю: для каждой клетки проверяем и линии, и квадрат
 bool Board::hasAnyMatch() const {
-    // Проверяем линейные матчи (3+ в ряд)
     for (int r = 0; r < rows_; ++r) {
         for (int c = 0; c < cols_; ++c) {
-            if (matchesRunFrom(r, c, 0, 1) || matchesRunFrom(r, c, 1, 0)) return true;
-        }
-    }
-    
-    // Проверяем 2x2 квадраты (самолетики)
-    for (int r = 0; r + 1 < rows_; ++r) {
-        for (int c = 0; c + 1 < cols_; ++c) {
-            const int color = at(r, c);
-            if (color >= 0 &&
-                at(r, c + 1) == color &&
-                at(r + 1, c) == color &&
-                at(r + 1, c + 1) == color) {
+            if (matchesRunFrom(r, c, 0, 1) || matchesRunFrom(r, c, 1, 0) || hasSquareAt(r, c)) {
                 return true;
             }
         }
     }
-    
     return false;
 }
 
@@ -238,9 +233,8 @@ std::vector<Cell> Board::findPlanes() const {
 
     for (int r = 0; r + 1 < rows_; ++r) {
         for (int c = 0; c + 1 < cols_; ++c) {
+            if (!hasSquareAt(r, c)) continue;
             const int color = at(r, c);
-            if (color < 0) continue;  // пусто или бустер — не может быть углом квадрата
-            if (at(r, c + 1) != color || at(r + 1, c) != color || at(r + 1, c + 1) != color) continue;
 
             // Нашли 2x2 блок — помечаем его 4 клетки.
             marked[index(r, c)]         = 1;
@@ -287,91 +281,64 @@ bool Board::containsSquare(const std::vector<Cell>& cells) const {
     return false;
 }
 
+// Длина самой длинной подряд идущей серии клеток группы по строке
+// (horizontal == true) или по столбцу (horizontal == false). Считаем только
+// от клеток, у которых нет соседа с той же стороны, откуда идёт серия —
+// так каждая серия обсчитывается ровно один раз, без сортировки построчно,
+// тем же приёмом на std::set, что и в containsSquare.
+int Board::longestRun(const std::vector<Cell>& cells, bool horizontal) const {
+    std::set<std::pair<int, int>> set;
+    for (const Cell& cell : cells) set.insert({cell.r, cell.c});
+
+    int best = 0;
+    for (const Cell& cell : cells) {
+        const int  r       = cell.r;
+        const int  c       = cell.c;
+        const bool hasPrev = horizontal ? set.count({r, c - 1}) > 0 : set.count({r - 1, c}) > 0;
+        if (hasPrev) continue;  // не начало серии — её посчитают от настоящего начала
+
+        int len = 1;
+        while (horizontal ? set.count({r, c + len}) : set.count({r + len, c})) ++len;
+        best = std::max(best, len);
+    }
+    return best;
+}
+
 // Классификация одной связной группы клеток по форме → тип бустера.
+//
+// Форма определяется двумя числами: самой длинной горизонтальной и самой
+// длинной вертикальной серией внутри группы. Этого достаточно, чтобы отличить
+// настоящий крест/уголок (бомба — две линии длиной >= 3, пересекающиеся под
+// прямым углом) от одиночной линии с случайным довеском — например, когда
+// к линии из 4 снизу примкнула ещё одна клетка или половина 2x2 квадрата, но
+// вторая, перпендикулярная серия так и не набрала длину 3. Такой довесок не
+// даёт права на бомбу, и группа остаётся ракетой.
 cfg::BoosterType Board::classifyMatch(const std::vector<Cell>& cells) const {
     if (cells.empty()) return cfg::BoosterType::None;
 
-    const int cellCount = static_cast<int>(cells.size());
+    const int cellCount     = static_cast<int>(cells.size());
+    const int maxHorizontal = longestRun(cells, /*horizontal=*/true);
+    const int maxVertical   = longestRun(cells, /*horizontal=*/false);
 
-    // ---- Проверка 1: чистая горизонтальная или вертикальная линия ----
-    bool allSameRow = true;
-    bool allSameCol = true;
-    for (size_t i = 1; i < cells.size(); ++i) {
-        if (cells[i].r != cells[0].r) allSameRow = false;
-        if (cells[i].c != cells[0].c) allSameCol = false;
-    }
+    // 5+ подряд в любом направлении — радужный шар, даже внутри T/L-формы.
+    if (std::max(maxHorizontal, maxVertical) >= 5) return cfg::BoosterType::Rainbow;
 
-    if (allSameRow || allSameCol) {
-        if (cellCount >= 5) return cfg::BoosterType::Rainbow;
-        if (cellCount == 4) return cfg::BoosterType::Line;
-        return cfg::BoosterType::None;
-    }
+    // Две настоящие пересекающиеся линии — обе длиной >= 3. Именно это, а не
+    // просто «бокс матча занял больше одной строки и колонки», отличает
+    // L/T-бомбу от линии с довеском короче полноценной второй линии.
+    if (maxHorizontal >= 3 && maxVertical >= 3) return cfg::BoosterType::Bomb;
 
-    // ---- Проверка 2: максимальная линия (для T/L форм с 5+) ----
-    // Если есть 5+ подряд в любом направлении → Rainbow (даже в T-форме)
+    // Компактный квадрат: 4 клетки самого 2x2 плюс, возможно, одна соседняя.
+    // Проверяется после бомбы: у настоящей бомбы могло бы найтись 2x2 в
+    // основании креста, но раз обе линии длиной >= 3, до этой строки дело уже
+    // не доходит — здесь остаются только «чистые» квадраты.
+    if (cellCount <= 5 && containsSquare(cells)) return cfg::BoosterType::Airplane;
 
-    // Найти максимальную горизонтальную линию
-    std::map<int, std::vector<int>> byRow;
-    for (const auto& cell : cells) {
-        byRow[cell.r].push_back(cell.c);
-    }
-    int maxHorizontal = 0;
-    for (auto& [r, cols] : byRow) {
-        std::sort(cols.begin(), cols.end());
-        int count = 1;
-        for (size_t i = 1; i < cols.size(); ++i) {
-            if (cols[i] == cols[i-1] + 1) {
-                count++;
-            } else {
-                maxHorizontal = std::max(maxHorizontal, count);
-                count = 1;
-            }
-        }
-        maxHorizontal = std::max(maxHorizontal, count);
-    }
-
-    // Найти максимальную вертикальную линию
-    std::map<int, std::vector<int>> byCol;
-    for (const auto& cell : cells) {
-        byCol[cell.c].push_back(cell.r);
-    }
-    int maxVertical = 0;
-    for (auto& [c, rows] : byCol) {
-        std::sort(rows.begin(), rows.end());
-        int count = 1;
-        for (size_t i = 1; i < rows.size(); ++i) {
-            if (rows[i] == rows[i-1] + 1) {
-                count++;
-            } else {
-                maxVertical = std::max(maxVertical, count);
-                count = 1;
-            }
-        }
-        maxVertical = std::max(maxVertical, count);
-    }
-
-    int maxLine = std::max(maxHorizontal, maxVertical);
-    if (maxLine >= 5) return cfg::BoosterType::Rainbow;
-
-    // ---- Проверка 2: Самолетик может быть только из 4 или 5 фишек ----
-    // Если 6+ фишек — это точно бомба, даже если есть 2x2
-    if (cellCount <= 5 && containsSquare(cells)) {
-        return cfg::BoosterType::Airplane;  // 4 клетки квадрата или 4 + 1 соседняя
-    }
-
-    // ---- Проверка 3: L/T форма (бомба) — занимает 2+ строк И 2+ столбцов ----
-    int minR = cells[0].r, maxR = cells[0].r;
-    int minC = cells[0].c, maxC = cells[0].c;
-    for (const auto& cell : cells) {
-        minR = std::min(minR, cell.r);
-        maxR = std::max(maxR, cell.r);
-        minC = std::min(minC, cell.c);
-        maxC = std::max(maxC, cell.c);
-    }
-
-    if ((maxR - minR > 0) && (maxC - minC > 0)) {
-        return cfg::BoosterType::Bomb;
-    }
+    // Осталась ровно одна доминирующая линия длиной 4 (без второй линии
+    // длиной >= 3 и без квадрата) — обычная ракета, независимо от того, что
+    // к ней могло примкнуть.
+    if (maxHorizontal == 4) return cfg::BoosterType::RocketVertical;    // линия шла по строке
+    if (maxVertical == 4)   return cfg::BoosterType::RocketHorizontal;  // линия шла по столбцу
 
     return cfg::BoosterType::None;
 }

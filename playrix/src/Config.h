@@ -27,9 +27,13 @@ inline constexpr int kChipSpriteCount = static_cast<int>(std::size(kChipSprites)
 // Спрайты бустеров — тоже общие для всех уровней, грузятся один раз.
 // Индекс в массиве совпадает со значением enum BoosterType (объявлен ниже),
 // поэтому 0-й элемент (None) не используется и оставлен пустым.
+// У горизонтальной и вертикальной ракеты один и тот же файл — вертикальная
+// получается поворотом того же спрайта на 90° при отрисовке (см. Renderer),
+// TextureCache грузит совпадающие пути один раз и переиспользует текстуру.
 inline constexpr const char* kBoosterSprites[] = {
     "",                                     // None — не используется
-    "assets/booster_rocket_60.png",         // Line     — линия/ракета
+    "assets/booster_rocket_60.png",         // RocketHorizontal — линия по столбцу
+    "assets/booster_rocket_60.png",         // RocketVertical   — линия по строке (тот же спрайт, повёрнут)
     "assets/booster_rainbow_ball_60.png",   // Rainbow  — радужный шар
     "assets/booster_bomb_60.png",           // Bomb     — бомба
     "assets/booster_plane_60.png",          // Airplane — самолётик
@@ -91,11 +95,12 @@ constexpr Rgb kProgressFill   = {112, 210, 130};
 
 // ---- типы бустеров --------------------------------------------------------
 enum class BoosterType {
-    None,       // обычный матч (3 фишки)
-    Line,       // ровно 4 в одну линию (горизонтальную или вертикальную)
-    Rainbow,    // 5 или больше в одну линию
-    Bomb,       // L или T форма (две линии разных направлений пересекаются)
-    Airplane    // 2x2 квадрат
+    None,              // обычный матч (3 фишки)
+    RocketHorizontal,  // ровно 4 в столбец — горизонтальная ракета
+    RocketVertical,    // ровно 4 в строку  — вертикальная ракета
+    Rainbow,           // 5 или больше в одну линию
+    Bomb,              // L или T форма (две линии разных направлений пересекаются)
+    Airplane           // 2x2 квадрат
 };
 
 }  // namespace cfg

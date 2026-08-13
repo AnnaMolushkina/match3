@@ -9,6 +9,15 @@
 
 namespace m3 {
 
+namespace {
+// Горизонтальная и вертикальная ракета делят один спрайт (см. Config.h) —
+// вертикальная получается поворотом того же изображения на 90° влево
+// (против часовой стрелки; в SDL положительный угол — по часовой).
+double boosterAngle(cfg::BoosterType type) {
+    return (type == cfg::BoosterType::RocketVertical) ? -90.0 : 0.0;
+}
+}  // namespace
+
 Renderer::Renderer(SDL_Renderer* sdl, TextureCache& textures, Text& text, const Level& level)
     : sdl_(sdl), textures_(&textures), text_(&text), level_(&level) {} //берем адрес ссылок, чтобы сохранить их как указатели в полях класса
 
@@ -99,13 +108,18 @@ void Renderer::drawBoard(const Board& board, const std::vector<ChipView>& views,
             if (alpha <= 0) continue;  // фишка уже растворилась
             SDL_SetTextureAlphaMod(texture, static_cast<Uint8>(alpha));
 
-            // dst — прямоугольник на экране, куда SDL_RenderCopy нарисует текстуру
+            // dst — прямоугольник на экране, куда рисуем текстуру, растягивая
+            // её на dst.w x dst.h пикселей
             SDL_Rect dst{level_->boardX() + c * level_->tile +
                              static_cast<int>(std::lround(view.offsetX)),
                          level_->boardY() + r * level_->tile +
                              static_cast<int>(std::lround(view.offsetY)),
                          level_->tile, level_->tile};
-            SDL_RenderCopy(sdl_, texture, nullptr, &dst); // SDL_RenderCopy рисует текстуру в dst, растягивая её на dst.w x dst.h пикселей
+            // RenderCopyEx с углом 0 равносилен обычному RenderCopy — используем
+            // его всегда, чтобы вертикальная ракета получала поворот без
+            // отдельного спрайта.
+            SDL_RenderCopyEx(sdl_, texture, nullptr, &dst, boosterAngle(booster), nullptr,
+                              SDL_FLIP_NONE);
         }
     }
 

@@ -94,8 +94,15 @@ private:
     int  pickColor();
     bool matchesRunFrom(int r, int c, int dr, int dc) const;
 
+    // Есть ли цельный 2x2 квадрат одного цвета с левым верхним углом в (r, c).
+    bool hasSquareAt(int r, int c) const;
+
     // Проверить, содержит ли группа клеток цельный 2x2 квадрат
     bool containsSquare(const std::vector<Cell>& cells) const;
+
+    // Длина самой длинной подряд идущей серии клеток группы в одном
+    // направлении (по строке при horizontal == true, иначе по столбцу).
+    int longestRun(const std::vector<Cell>& cells, bool horizontal) const;
 
     // Классифицировать одну связную группу по форме → тип бустера
     cfg::BoosterType classifyMatch(const std::vector<Cell>& cells) const;

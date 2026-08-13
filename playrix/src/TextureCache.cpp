@@ -4,6 +4,8 @@
 
 #include <SDL2/SDL_image.h>
 
+#include <cstring>
+
 namespace m3 {
 
 TextureCache::~TextureCache() { destroy(); }
@@ -13,10 +15,23 @@ void TextureCache::destroy() {
         if (texture) SDL_DestroyTexture(texture);
     }
     chips_.clear();
-    for (SDL_Texture* texture : boosters_) {
-        if (texture) SDL_DestroyTexture(texture);
+
+    // Несколько типов бустеров могут делить одну текстуру (см. load) —
+    // уничтожаем каждый уникальный указатель ровно один раз.
+    for (size_t i = 0; i < boosters_.size(); ++i) {
+        SDL_Texture* texture = boosters_[i];
+        if (!texture) continue;
+        bool seenBefore = false;
+        for (size_t j = 0; j < i; ++j) {
+            if (boosters_[j] == texture) {
+                seenBefore = true;
+                break;
+            }
+        }
+        if (!seenBefore) SDL_DestroyTexture(texture);
     }
     boosters_.clear();
+
     if (background_) {
         SDL_DestroyTexture(background_);
         background_ = nullptr;
@@ -41,9 +56,25 @@ bool TextureCache::load(SDL_Renderer* renderer, std::string& error) {
     }
 
     // Индекс 0 (None) не грузим — бустерам без типа спрайт не нужен.
+    // Горизонтальная и вертикальная ракета делят один и тот же файл (вертикальная
+    // получается поворотом при отрисовке) — если путь уже встречался, текстуру
+    // не грузим повторно, а переиспользуем уже загруженную.
     boosters_.assign(cfg::kBoosterSpriteCount, nullptr);
     for (int i = 1; i < cfg::kBoosterSpriteCount; ++i) {
-        const char*  path    = cfg::kBoosterSprites[i];
+        const char* path = cfg::kBoosterSprites[i];
+
+        SDL_Texture* reused = nullptr;
+        for (int j = 1; j < i; ++j) {
+            if (std::strcmp(cfg::kBoosterSprites[j], path) == 0) {
+                reused = boosters_[j];
+                break;
+            }
+        }
+        if (reused) {
+            boosters_[i] = reused;
+            continue;
+        }
+
         SDL_Texture* texture = IMG_LoadTexture(renderer, path);
         if (!texture) {
             error = std::string("не удалось загрузить спрайт бустера `") + path +
