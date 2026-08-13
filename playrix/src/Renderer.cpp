@@ -46,24 +46,13 @@ void Renderer::clear() {
 
 // Показать на экране то, что нарисовали в буфере SDL_Renderer
 void Renderer::present() { SDL_RenderPresent(sdl_); }
+
 // Фон под полем
 void Renderer::drawBoardBackground() {
     const int x = level_->boardX();
     const int y = level_->boardY();
-
-    if (SDL_Texture* bg = textures_->background()) {
-        SDL_Rect dst{x, y, level_->boardW(), level_->boardH()};
-        SDL_RenderCopy(sdl_, bg, nullptr, &dst);
-        return;
-    }
-
+ 
     fill(x - 8, y - 8, level_->boardW() + 16, level_->boardH() + 16, cfg::kBoardColor);
-    for (int r = 0; r < level_->rows; ++r) {
-        for (int c = 0; c < level_->cols; ++c) {
-            const cfg::Rgb color = ((r + c) % 2 == 0) ? cfg::kCellColorEven : cfg::kCellColorOdd;
-            fill(x + c * level_->tile, y + r * level_->tile, level_->tile, level_->tile, color);
-        }
-    }
 }
 
 // Рисует всё поле с фишками
@@ -90,15 +79,11 @@ void Renderer::drawBoard(const Board& board, const std::vector<ChipView>& views,
             const int color = board.at(r, c);
             if (color == kEmpty) continue;
 
-            // Клетка с бустером рисуется его спрайтом вместо обычной фишки —
-            // сама фишка при этом просто «одета» в бустер, цвет под ним не теряется.
             const cfg::BoosterType booster = board.boosterAt(r, c);
             SDL_Texture*           texture;
             if (booster != cfg::BoosterType::None) {
                 texture = textures_->booster(booster);
             } else {
-                // Board нумерует цвета подряд от нуля, а текстуры лежат по
-                // номерам спрайтов из палитры — перевод делает уровень.
                 texture = textures_->chip(level_->sprite(color));
             }
             if (!texture) continue;
@@ -126,9 +111,7 @@ void Renderer::drawBoard(const Board& board, const std::vector<ChipView>& views,
     SDL_RenderSetClipRect(sdl_, nullptr);
 }
 
-// Летящие спрайты бустеров — самолётик к своей цели, пара ракет к краям
-// строки/столбца. Рисуются поверх уже готового поля; сама доска под ними в
-// это время ещё выглядит как раньше (Game прячет её только после долёта).
+// Летящие спрайты бустеров — самолётик к своей цели, пара ракет к краям строки/столбца
 void Renderer::drawBoosterFlights(const std::vector<BoosterFlight>& flights, float progress) {
     if (flights.empty()) return;
 

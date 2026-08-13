@@ -24,25 +24,21 @@ inline constexpr const char* kChipSprites[] = {
 
 inline constexpr int kChipSpriteCount = static_cast<int>(std::size(kChipSprites));
 
-// Спрайты бустеров — тоже общие для всех уровней, грузятся один раз.
-// Индекс в массиве совпадает со значением enum BoosterType (объявлен ниже),
-// поэтому 0-й элемент (None) не используется и оставлен пустым.
+// Спрайты бустеров — общие для всех уровней.
+// Индекс в массиве совпадает со значением enum BoosterType (объявлен ниже)
 // У горизонтальной и вертикальной ракеты один и тот же файл — вертикальная
 // получается поворотом того же спрайта на 90° при отрисовке (см. Renderer),
 // TextureCache грузит совпадающие пути один раз и переиспользует текстуру.
 inline constexpr const char* kBoosterSprites[] = {
     "",                                     // None — не используется
     "assets/booster_rocket_60.png",         // RocketHorizontal — линия по столбцу
-    "assets/booster_rocket_60.png",         // RocketVertical   — линия по строке (тот же спрайт, повёрнут)
+    "assets/booster_rocket_60.png",         // RocketVertical   — линия по строке
     "assets/booster_rainbow_ball_60.png",   // Rainbow  — радужный шар
     "assets/booster_bomb_60.png",           // Bomb     — бомба
     "assets/booster_plane_60.png",          // Airplane — самолётик
 };
 
 inline constexpr int kBoosterSpriteCount = static_cast<int>(std::size(kBoosterSprites));
-
-// Фон игрового поля; пустая строка — подложку рисует Renderer.
-inline constexpr const char* kBackgroundSprite = "";
 
 // Шрифт интерфейса — тоже общий для всех уровней.
 inline constexpr const char* kFontFile = "assets/font.ttf";
@@ -55,19 +51,15 @@ constexpr int kPanelW = 180;  // ширина левой панели с цел�
 constexpr int kSelectFrame = 3;
 
 // Панель цели: размер фишки-образца и кегль числа поверх неё.
-constexpr int kGoalIconSize = 96;
-constexpr int kGoalFontSize = 30;
+constexpr int kGoalIconSize = 76;
+constexpr int kGoalFontSize = 20;
 
 // ---- тайминги, секунды --------------------------------------------------
 constexpr float kSwapTime    = 0.15f;
 constexpr float kRemoveTime  = 0.24f;
 constexpr float kShuffleTime = 0.40f;
-constexpr float kSquashTime  = 0.14f;
-constexpr float kWinDelay    = 1.60f;
-constexpr float kShuffleHold = 0.35f;  // пауза с надписью перед перетасовкой
 
-// Полёт самолётика к цели или пары ракет к краям поля — до того, как начнётся
-// обычное затухание снесённых клеток.
+// Полёт самолётика к цели или пары ракет к краям поля
 constexpr float kBoosterFlightTime = 0.45f;
 
 // Потолок для шага кадра: если вкладку свернули, dt накопится за всё время,
@@ -86,24 +78,20 @@ struct Rgb {
 constexpr Rgb kBgColor        = {30, 30, 40};
 // Прозрачность фона канваса. 0 — за полем виден фон страницы (bg.png из
 // index.html); поставить 255, чтобы канвас снова заливался kBgColor.
-constexpr uint8_t kBgAlpha    = 0;
+constexpr uint8_t kBgAlpha    = 0; 
 constexpr Rgb kBoardColor     = {44, 44, 60};
-constexpr Rgb kCellColorEven  = {54, 54, 72};
-constexpr Rgb kCellColorOdd   = {48, 48, 65};
 constexpr Rgb kSelectColor    = {255, 255, 255};
 constexpr Rgb kTextColor      = {235, 235, 245};
 // Тень под числом: светлый текст поверх фишки любого цвета остаётся читаемым.
 constexpr Rgb kTextShadow     = {24, 24, 32};
-//constexpr Rgb kProgressBg     = {60, 60, 78};
-//constexpr Rgb kProgressFill   = {112, 210, 130};
 
 // ---- типы бустеров --------------------------------------------------------
 enum class BoosterType {
     None,              // обычный матч (3 фишки)
-    RocketHorizontal,  // ровно 4 в столбец — горизонтальная ракета
-    RocketVertical,    // ровно 4 в строку  — вертикальная ракета
-    Rainbow,           // 5 или больше в одну линию
-    Bomb,              // L или T форма (две линии разных направлений пересекаются)
+    RocketHorizontal,  // 4 в столбец — горизонтальная ракета
+    RocketVertical,    // 4 в строку  — вертикальная ракета
+    Rainbow,           // 5 в одну линию
+    Bomb,              // L или T форма
     Airplane           // 2x2 квадрат
 };
 

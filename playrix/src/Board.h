@@ -12,7 +12,7 @@ constexpr int kEmpty = -1;
 
 // Цвет клетки, занятой бустером. Отличен от любого настоящего цвета
 // (0..colors_-1) и от kEmpty, поэтому такая клетка никогда не совпадёт
-// по цвету с соседями и не попадёт в обычный матч — бустер не «цветной».
+// по цвету с соседями и не попадёт в обычный матч
 constexpr int kBoosted = -2;
 
 struct Cell {
@@ -50,7 +50,7 @@ public:
 
     int  index(int r, int c) const { return r * cols_ + c; }
     bool inside(int r, int c) const { return r >= 0 && r < rows_ && c >= 0 && c < cols_; }
-    int  at(int r, int c) const { return cells_[index(r, c)]; }
+    int  at(int r, int c) const { return cells_[index(r, c)]; } //возвращает цвет фишки в клетке или kEmpty
     void set(int r, int c, int value) { cells_[index(r, c)] = value; }
 
     // Тип бустера, лежащего в клетке (None — обычная фишка без бустера).
@@ -68,8 +68,6 @@ public:
 
     void swapCells(Cell a, Cell b);
 
-    // Все клетки, входящие в серии длиной >= 3 по горизонтали или вертикали.
-    // Формы L и T попадают в результат целиком: маска общая для обоих проходов.
     std::vector<Cell> findMatches() const;
     bool              hasAnyMatch() const;
 
@@ -102,8 +100,8 @@ public:
     bool randomCellOfColor(int color, const std::vector<Cell>& exclude, Cell& out);
 
 private:
-    int  pickColor();
-    bool matchesRunFrom(int r, int c, int dr, int dc) const;
+    int  pickColor(); // случайный выбор цвета из диапазона [0, colors_ - 1]
+    bool matchesRunFrom(int r, int c, int dr, int dc) const; // проверяет, есть ли серия из 3 или более одинаковых фишек, начинающаяся в (r, c) и продолжающаяся в направлении (dr, dc).
 
     // Есть ли цельный 2x2 квадрат одного цвета с левым верхним углом в (r, c).
     bool hasSquareAt(int r, int c) const;
@@ -118,16 +116,15 @@ private:
     // Классифицировать одну связную группу по форме → тип бустера
     cfg::BoosterType classifyMatch(const std::vector<Cell>& cells) const;
 
-    // Разбить плоский список клеток на связные компоненты по цвету
+    // Разбить список клеток на связные компоненты по цвету
     std::vector<std::vector<Cell>> groupByColor(const std::vector<Cell>& cells) const;
 
     int              rows_;
     int              cols_;
     int              colors_;
     std::vector<int> cells_; // внутри лежит номер цвета фишки или kEmpty, если клетка пуста
-    // Тип бустера в клетке, параллельно cells_. Двигается вместе с фишкой
-    // при свапе и падении; None для клеток без бустера.
-    std::vector<cfg::BoosterType> boosters_;
+  
+    std::vector<cfg::BoosterType> boosters_; // содержит тип бустера в каждой клетке (None — обычная фишка без бустера)
     std::mt19937     rng_;
 
 };

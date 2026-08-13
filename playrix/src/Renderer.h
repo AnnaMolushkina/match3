@@ -38,8 +38,8 @@ public:
     void drawBoosterFlights(const std::vector<BoosterFlight>& flights, float progress);
 
 private:
-    void fill(int x, int y, int w, int h, cfg::Rgb color, Uint8 alpha = 255);
-    void frame(int x, int y, int w, int h, int thickness, cfg::Rgb color);
+    void fill(int x, int y, int w, int h, cfg::Rgb color, Uint8 alpha = 255); // отрисовка прямоугольника заданного цвета и прозрачности
+    void frame(int x, int y, int w, int h, int thickness, cfg::Rgb color); // отрисовка контура прямоугольника заданного цвета и толщины
     void drawBoardBackground();
 
     SDL_Renderer* sdl_;

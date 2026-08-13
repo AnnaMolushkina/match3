@@ -31,17 +31,12 @@ void TextureCache::destroy() {
         if (!seenBefore) SDL_DestroyTexture(texture);
     }
     boosters_.clear();
-
-    if (background_) {
-        SDL_DestroyTexture(background_);
-        background_ = nullptr;
-    }
 }
 
 bool TextureCache::load(SDL_Renderer* renderer, std::string& error) {
     destroy();
     chips_.assign(cfg::kChipSpriteCount, nullptr);
-
+    // загрузчик спрайтов фишек SDL_image
     for (int sprite = 0; sprite < cfg::kChipSpriteCount; ++sprite) {
         const char*  path    = cfg::kChipSprites[sprite];
         SDL_Texture* texture = IMG_LoadTexture(renderer, path);
@@ -86,25 +81,15 @@ bool TextureCache::load(SDL_Renderer* renderer, std::string& error) {
         SDL_SetTextureScaleMode(texture, SDL_ScaleModeLinear);
         boosters_[i] = texture;
     }
-
-    if (cfg::kBackgroundSprite[0] != '\0') {
-        background_ = IMG_LoadTexture(renderer, cfg::kBackgroundSprite);
-        if (!background_) {
-            error = std::string("не удалось загрузить фон `") + cfg::kBackgroundSprite +
-                    "`: " + IMG_GetError();
-            destroy();
-            return false;
-        }
-    }
-
     return true;
 }
 
+// возвращает текстуру фишки по её номеру в палитре; nullptr при ошибке
 SDL_Texture* TextureCache::chip(int sprite) const {
     if (sprite < 0 || sprite >= static_cast<int>(chips_.size())) return nullptr;
     return chips_[sprite];
 }
-
+// возвращает текстуру бустера по его типу; nullptr для BoosterType::None
 SDL_Texture* TextureCache::booster(cfg::BoosterType type) const {
     const int index = static_cast<int>(type);
     if (index <= 0 || index >= static_cast<int>(boosters_.size())) return nullptr;

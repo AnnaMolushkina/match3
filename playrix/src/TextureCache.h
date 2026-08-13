@@ -20,15 +20,13 @@ public:
 
     // Аргумент — номер спрайта в палитре
     // перевод одного в другое делает Level::sprite().
-    SDL_Texture* chip(int sprite) const;
+    SDL_Texture* chip(int sprite) const; 
     // Спрайт бустера по его типу; nullptr для BoosterType::None.
     SDL_Texture* booster(cfg::BoosterType type) const;
-    SDL_Texture* background() const { return background_; }
 
 private:
-    std::vector<SDL_Texture*> chips_;
-    std::vector<SDL_Texture*> boosters_;
-    SDL_Texture*              background_ = nullptr;
+    std::vector<SDL_Texture*> chips_; // текстуры фишек, индекс — номер спрайта в палитре cfg::kChipSprites
+    std::vector<SDL_Texture*> boosters_;  // бустеры, индекс — номер спрайта в палитре cfg::kBoosterSprites
 };
 
 }  // namespace m3
