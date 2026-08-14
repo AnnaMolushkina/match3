@@ -50,6 +50,7 @@ private:
         Removing,   // матч уходит в прозрачность
         Falling,    // фишки опадают, сверху прилетают новые
         Shuffling,  // ходов не осталось, фишки разлетаются по новым клеткам
+        SpawnHold,  // шар+X: посеянные бустеры уже видны, ждём перед их общей активацией
     };
 
     bool        cellAt(int x, int y, Cell& out) const;
@@ -75,8 +76,8 @@ private:
     void updateShuffling(float dt);
     void restartLevel();
 
-    // Клетка, в которой должен появиться НОВЫЙ бустер, родившийся из матча
-    // (не путать с активацией уже стоящего на поле — см. ниже).
+    // Клетка, в которой должен появиться новый бустер, родившийся из матча
+    // (не путать с активацией уже стоящего на поле).
     static Cell pickBoosterCell(const MatchGroup& group, bool hasSwap, Cell swapA, Cell swapB);
 
     // Общее ядро для beginRemoving и активации бустеров: extraCells — то, что
@@ -98,6 +99,10 @@ private:
     // Запускает цепочку срабатываний бустеров, найденных в ходе одного хода игрока
     void beginBoosterChain(std::vector<QueuedBooster> initial, bool hasSwap, Cell swapA, Cell swapB);
 
+    // То же самое, но для уже готового результата комбо
+    // a/b помечаются сработавшими сразу, чтобы комбо не нашло само себя.
+    void beginBoosterComboChain(BoosterCombo combo, Cell a, Cell b, bool hasSwap, Cell swapA, Cell swapB);
+
     // Разбирает по одной волне бустеров
     void advanceBoosterChain();
     void updateBoosting(float dt);
@@ -105,8 +110,20 @@ private:
     // ---- комбинации двух бустеров, свапнутых друг с другом ----
     // (BoosterCombo.cpp; типы — в BoosterCombo.h)
 
-    // at — клетка второго клика
-    std::optional<BoosterCombo> tryBoosterCombo(cfg::BoosterType a, cfg::BoosterType b, Cell at) const;
+    // typeA/typeB — типы после свапа, лежащие в a/b соответственно.
+    std::optional<BoosterCombo> tryBoosterCombo(cfg::BoosterType typeA, cfg::BoosterType typeB, Cell a,
+                                                 Cell b) const;
+
+    // Шар + X: a/b пропадают мгновенно (resolveImmediate), и сразу же, не
+    // дожидаясь ни их гравитации, ни матча/цепочки, которые она может задеть
+    // (те разрешатся сами на следующей проверке), — beginRainbowSpawn.
+    void beginRainbowSpawnCombo(cfg::BoosterType spawnType, Cell a, Cell b);
+
+    // ~10% клеток поля мгновенно (без затухания старой фишки) становятся
+    // бустерами типа type, дальше — Phase::SpawnHold.
+    void beginRainbowSpawn(cfg::BoosterType type);
+    // Пауза кончилась — запускает посеянные бустеры одной волной.
+    void updateSpawnHold(float dt);
 
     Board*       board_;
     const Level* level_;  // игра не меняет настройки уровня
@@ -120,6 +137,9 @@ private:
 
     std::vector<MatchGroup> matchGroups_;
     std::vector<Cell>       boosterTargets_;
+
+    // Только что посеянные шар+X бустеры, ждущие конца Phase::SpawnHold.
+    std::vector<Cell>  pendingActivateCells_;
 
     // Состояние цепочки срабатываний бустеров
     std::vector<QueuedBooster> boosterQueue_;

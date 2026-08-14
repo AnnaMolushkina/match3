@@ -59,8 +59,12 @@ constexpr float kSwapTime    = 0.15f;
 constexpr float kRemoveTime  = 0.24f;
 constexpr float kShuffleTime = 0.40f;
 
-// Полёт самолётика к цели или пары ракет к краям поля
-constexpr float kBoosterFlightTime = 0.45f;
+// Время анимации бустеров
+constexpr float kBoosterFlightTime = 0.9f;
+
+// Пауза между тем, как посеянные шар+X бустеры появились на поле, и тем,
+// как они все одновременно активируются — чтобы игрок успел их увидеть.
+constexpr float kBoosterSpawnHoldTime = 0.5f;
 
 // Потолок для шага кадра: если вкладку свернули, dt накопится за всё время,
 // и без ограничения фишки телепортировались бы одним огромным шагом.

@@ -103,6 +103,14 @@ public:
     // победы цвета, не считая клеток, куда ему лететь нельзя (свои соседи).
     bool randomCellOfColor(int color, const std::vector<Cell>& exclude, Cell& out);
 
+    // До count случайных клеток из candidates, без повторов. Шар+бустер так
+    // выбирает, где посеять новые бустеры.
+    std::vector<Cell> pickRandomCells(std::vector<Cell> candidates, int count);
+
+    // Рандомный генератор для комбинации — шар+ракета: выбирает горизонтальную
+    // или вертикальную ракету
+    bool randomBool();
+
 private:
     int  pickColor(); // случайный выбор цвета из диапазона [0, colors_ - 1]
     bool matchesRunFrom(int r, int c, int dr, int dc) const; // проверяет, есть ли серия из 3 или более одинаковых фишек, начинающаяся в (r, c) и продолжающаяся в направлении (dr, dc).

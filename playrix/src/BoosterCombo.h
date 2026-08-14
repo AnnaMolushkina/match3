@@ -6,10 +6,7 @@
 #include "Board.h"
 #include "ChipView.h"
 
-// Комбинации двух бустеров, свапнутых игроком друг с другом 
-
-// Game::tryBoosterCombo сейчас всегда возвращает std::nullopt, и
-// Game::trySwap в этом случае активирует оба бустера независимо, как и раньше.
+// Комбинации двух бустеров, свапнутых игроком друг с другом.
 namespace m3 {
 
 struct BoosterCombo {
@@ -18,9 +15,12 @@ struct BoosterCombo {
     std::vector<BoosterFlight> flights;    // визуальные полёты комбо, если есть
 };
 
-// Приводит пару типов бустеров к каноническому (неупорядоченному) виду
+// Приводит пару типов бустеров к каноническому (неупорядоченному) виду —
 // искать/switch'ить пары удобнее в одном фиксированном порядке.
 // .first <= .second по значению enum.
 std::pair<cfg::BoosterType, cfg::BoosterType> canonicalBoosterPair(cfg::BoosterType a, cfg::BoosterType b);
+
+// true, если это пара "шар + X" (X != шар) — spawnType получает тип X.
+bool isRainbowSpawnPair(cfg::BoosterType a, cfg::BoosterType b, cfg::BoosterType& spawnType);
 
 }  // namespace m3

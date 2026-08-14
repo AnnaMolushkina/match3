@@ -40,6 +40,17 @@ bool Board::randomCellOfColor(int color, const std::vector<Cell>& exclude, Cell&
     return true;
 }
 
+std::vector<Cell> Board::pickRandomCells(std::vector<Cell> candidates, int count) {
+    std::shuffle(candidates.begin(), candidates.end(), rng_);
+    if (count < static_cast<int>(candidates.size())) candidates.resize(static_cast<size_t>(count));
+    return candidates;
+}
+
+bool Board::randomBool() {
+    std::uniform_int_distribution<int> dist(0, 1);
+    return dist(rng_) == 1;
+}
+
 // Случайная раскладка без готовых матчей и гарантированно с ходом.
 void Board::reset() {
     // Свежая раскладка — бустеров на поле ещё нет.

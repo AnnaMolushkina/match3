@@ -45,12 +45,14 @@ void Game::appendBoosterBlast(std::vector<Cell>& out, std::vector<Cell>& immedia
             flights.push_back({type, row, col, static_cast<float>(board_->rows() - 1), col});
             break;
 
-        case cfg::BoosterType::Bomb:  // квадрат 5x5 вокруг бустера
+        case cfg::BoosterType::Bomb:  // квадрат 5x5 вокруг бустера — без полёта,
+                                      // поэтому весь снос сразу же immediate
             for (int r = cell.r - 2; r <= cell.r + 2; ++r) {
                 for (int c = cell.c - 2; c <= cell.c + 2; ++c) {
                     if (board_->inside(r, c)) add({r, c});
                 }
             }
+            immediate = out;
             break;
 
         case cfg::BoosterType::Rainbow: {
@@ -63,6 +65,7 @@ void Game::appendBoosterBlast(std::vector<Cell>& out, std::vector<Cell>& immedia
                     if (board_->at(r, c) == color) add({r, c});
                 }
             }
+            immediate = out;  // тоже без полёта — сносится сразу
             break;
         }
 
@@ -237,6 +240,81 @@ void Game::advanceBoosterChain() {
     // Волны кончились — цепочка полностью разобрана.
     flights_.clear();
     startRemoving(std::move(chainBlast_), chainHasSwap_, chainSwapA_, chainSwapB_);
+}
+
+// Разворачивает уже готовый результат комбо в состояние цепочки — так же,
+// как advanceBoosterChain разворачивает один QueuedBooster, только blast/
+// immediate/flights уже посчитаны в tryBoosterCombo, звать appendBoosterBlast
+// не нужно.
+void Game::beginBoosterComboChain(BoosterCombo combo, Cell a, Cell b, bool hasSwap, Cell swapA,
+                                   Cell swapB) {
+    auto contains = [](const std::vector<Cell>& v, Cell c) {
+        for (const Cell& e : v) {
+            if (e == c) return true;
+        }
+        return false;
+    };
+
+    boosterQueue_.clear();
+    chainTriggered_ = {a, b};  // оба бустера уже объединились — не искать их как "найденные"
+    chainBlast_.clear();
+    chainHasSwap_ = hasSwap;
+    chainSwapA_   = swapA;
+    chainSwapB_   = swapB;
+
+    // Бустеров среди immediate ищем ДО resolveImmediate — она их сотрёт с
+    // доски. Найденные идут в boosterQueue_: раз у самого комбо нет полёта,
+    // advanceBoosterChain() ниже разберёт их без всякой паузы, "сразу".
+    for (const Cell& c : combo.immediate) {
+        if (contains(chainTriggered_, c)) continue;
+        bool alreadyQueued = false;
+        for (const QueuedBooster& q : boosterQueue_) {
+            if (q.cell == c) {
+                alreadyQueued = true;
+                break;
+            }
+        }
+        if (alreadyQueued) continue;
+        const cfg::BoosterType caught = board_->boosterAt(c.r, c.c);
+        if (caught != cfg::BoosterType::None) {
+            boosterQueue_.push_back(QueuedBooster{c, caught, false, Cell{}});
+        }
+    }
+
+    for (const Cell& c : combo.immediate) {
+        views_[static_cast<size_t>(board_->index(c.r, c.c))].alpha = 0.0f;
+    }
+    resolveImmediate(combo.immediate);
+
+    for (const Cell& c : combo.blast) {
+        bool wasImmediate = false;
+        for (const Cell& ic : combo.immediate) {
+            if (ic == c) {
+                wasImmediate = true;
+                break;
+            }
+        }
+        if (wasImmediate) continue;
+
+        if (!contains(chainBlast_, c)) chainBlast_.push_back(c);
+
+        if (contains(chainTriggered_, c)) continue;
+        const cfg::BoosterType caught = board_->boosterAt(c.r, c.c);
+        if (caught != cfg::BoosterType::None) {
+            boosterQueue_.push_back(QueuedBooster{c, caught, false, Cell{}});
+        }
+    }
+
+    if (!combo.flights.empty()) {
+        views_[static_cast<size_t>(board_->index(a.r, a.c))].alpha = 0.0f;
+        views_[static_cast<size_t>(board_->index(b.r, b.c))].alpha = 0.0f;
+        flights_    = std::move(combo.flights);
+        boostTimer_ = 0.0f;
+        phase_      = Phase::Boosting;
+        return;
+    }
+
+    advanceBoosterChain();  // нет полёта — сразу проверяем, не нашлось ли чего по цепочке
 }
 
 void Game::updateBoosting(float dt) {

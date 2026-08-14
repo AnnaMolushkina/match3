@@ -28,6 +28,7 @@ void Game::reset() {
     shuffleFrom_.clear();
     matchGroups_.clear();
     boosterTargets_.clear();
+    pendingActivateCells_.clear();
     flights_.clear();
     boostTimer_ = 0.0f;
     boosterQueue_.clear();
@@ -105,10 +106,19 @@ bool Game::trySwap(Cell a, Cell b) {
         // Свап с бустером — это способ его активировать
         board_->swapCells(a, b);
 
-        // Комбо пока не реализовано: tryBoosterCombo всегда nullopt, и ниже
-        // бустеры активируются независимо, как и раньше.
         if (boosterA != cfg::BoosterType::None && boosterB != cfg::BoosterType::None) {
-            (void)tryBoosterCombo(boosterA, boosterB, b);
+            const cfg::BoosterType nowAtA = board_->boosterAt(a.r, a.c);
+            const cfg::BoosterType nowAtB = board_->boosterAt(b.r, b.c);
+
+            cfg::BoosterType spawnType;
+            if (isRainbowSpawnPair(nowAtA, nowAtB, spawnType)) {
+                beginRainbowSpawnCombo(spawnType, a, b);
+                return true;
+            }
+            if (auto combo = tryBoosterCombo(nowAtA, nowAtB, a, b)) {
+                beginBoosterComboChain(std::move(*combo), a, b, /*hasSwap=*/true, a, b);
+                return true;
+            }
         }
 
         std::vector<QueuedBooster> initial;
@@ -143,6 +153,8 @@ void Game::update(float dt) {
         updateFalling();
     } else if (phase_ == Phase::Shuffling) {
         updateShuffling(dt);
+    } else if (phase_ == Phase::SpawnHold) {
+        updateSpawnHold(dt);
     }
 }
 
